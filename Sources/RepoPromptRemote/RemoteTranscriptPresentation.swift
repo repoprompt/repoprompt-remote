@@ -482,3 +482,201 @@ enum RemoteToolActivityState: Int, Equatable {
         }
     }
 }
+
+enum RemoteToolCardKind: Equatable {
+    case read, search, shell, edit
+
+    init?(_ toolName: String?) {
+        guard let name = toolName?.lowercased().split(separator: ".").last else { return nil }
+        switch name.components(separatedBy: "__").last {
+        case "read", "read_file": self = .read
+        case "file_search", "grep", "glob", "list_files": self = .search
+        case "bash", "shell", "local_shell", "unified_exec", "exec_command", "run_shell_command": self = .shell
+        case "apply_edits", "apply_patch", "filechange", "file_change", "edit", "edit file", "edit_file", "write_file":
+            self = .edit
+        default: return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .read: "Read file"
+        case .search: "Search files"
+        case .shell: "Run command"
+        case .edit: "Edit files"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .read: "doc.text"
+        case .search: "magnifyingglass"
+        case .shell: "terminal"
+        case .edit: "pencil"
+        }
+    }
+
+    func summary(for item: RemoteTranscriptItem) -> String? {
+        guard let text = item.text else { return nil }
+        let parts = text.components(separatedBy: " • ")
+        if parts.count >= 2, RemoteToolCardKind(parts[0]) == self, parts[1] == item.toolStatus {
+            return parts.count > 2 ? parts.dropFirst(2).joined(separator: " • ") : nil
+        }
+        return text
+    }
+}
+
+struct RemoteToolDetailPresentation {
+    struct Section {
+        let title: String
+        let text: String
+        let isDiff: Bool
+
+        init(_ title: String, _ text: String, isDiff: Bool = false) {
+            self.title = title
+            self.text = text
+            self.isDiff = isDiff
+        }
+    }
+
+    var sections: [Section] = []
+    var metadata: [String] = []
+    var exitCode: Int?
+    var isPartial = false
+
+    init?(kind: RemoteToolCardKind, detail: RemoteTranscriptDetail, summaryOnly: Bool) {
+        let args = Self.object(detail.argumentsJSON)
+        let raw = detail.resultJSON
+        let result = Self.object(raw)
+        let text = raw.map(RemoteTranscriptPresentation.formattedToolPayload)
+        let isPlainText = text.map { !$0.hasPrefix("{") && !$0.hasPrefix("[") } ?? false
+        isPartial = summaryOnly || result?["summary_only"] as? Bool == true
+            || result?["diff_truncated"] as? Bool == true
+            || result?["limit_hit"] as? Bool == true || result?["size_limit_hit"] as? Bool == true
+
+        switch kind {
+        case .read:
+            if let path = Self.string(result, "display_path", "path")
+                ?? Self.string(args, "path", "file_path", "filePath") ?? detail.keyPaths.first
+            {
+                sections.append(Section("File", path))
+            }
+            if let first = result?["first_line"] as? Int, first > 0,
+               let last = result?["last_line"] as? Int, last >= first
+            {
+                metadata.append(first == last ? "Line \(first)" : "Lines \(first)–\(last)")
+            }
+            let content = Self.string(result, "content", "text", "output") ?? (isPlainText ? text : nil)
+            appendResult("Content", content, raw: text)
+        case .search:
+            if let query = Self.string(args, "pattern", "query", "glob") {
+                sections.append(Section("Query", query))
+            }
+            if let total = result?["total_matches"] as? Int {
+                metadata.append("\(total) \(total == 1 ? "match" : "matches")")
+            }
+            let matches = Self.searchMatches(result)
+            appendResult("Matches", matches.isEmpty ? (isPlainText ? text : nil) : matches, raw: text)
+        case .shell:
+            if let command = Self.string(result, "command", "cmd")
+                ?? Self.string(args, "command", "cmd") ?? (args?["argv"] as? [String])?.joined(separator: " ")
+            {
+                sections.append(Section("Command", command))
+            }
+            exitCode = detail.exitCode ?? result?["exitCode"] as? Int ?? result?["exit_code"] as? Int
+            let output = Self.string(result, "aggregatedOutput", "aggregated_output", "stdout", "output")
+                ?? (isPlainText ? text : nil)
+            let standardError = Self.string(result, "stderr")
+            if let standardError {
+                if let output { sections.append(Section("Output", output)) }
+                sections.append(Section("Standard error", standardError))
+            } else {
+                appendResult("Output", output, raw: text)
+            }
+        case .edit:
+            let changes = (result?["changes"] ?? result?["content"]) as? [[String: Any]] ?? []
+            for change in changes {
+                guard let path = Self.string(change, "path", "file_path") else { continue }
+                if let diff = Self.string(change, "card_unified_diff", "unified_diff", "diff") {
+                    sections.append(Section(path, diff, isDiff: true))
+                } else {
+                    sections.append(Section("File", path))
+                }
+                isPartial = isPartial || change["diff_truncated"] as? Bool == true
+            }
+            if changes.isEmpty || sections.isEmpty {
+                let paths = detail.keyPaths.isEmpty ? (args?["paths"] as? [String] ?? []) : detail.keyPaths
+                if !paths.isEmpty {
+                    sections.append(Section("Files", paths.joined(separator: "\n")))
+                } else if let path = Self.string(args, "path", "file_path", "filePath") {
+                    sections.append(Section("File", path))
+                }
+                if let diff = Self.string(result, "card_unified_diff", "unified_diff", "diff") {
+                    sections.append(Section("Diff", diff, isDiff: true))
+                } else if let text, text.hasPrefix("diff --git ") || text.hasPrefix("--- ") || text.hasPrefix("@@ ") {
+                    sections.append(Section("Diff", text, isDiff: true))
+                } else {
+                    appendResult("Result", Self.string(result, "output"), raw: text)
+                }
+            }
+            if let added = result?["added_lines"] as? Int, let deleted = result?["deleted_lines"] as? Int {
+                metadata.append("+\(added) −\(deleted) lines")
+            } else if !isPartial, let counts = Self.diffCounts(sections.filter(\.isDiff)) {
+                metadata.append("+\(counts.added) −\(counts.deleted) lines")
+            } else if let total = result?["total_lines_changed"] as? Int {
+                metadata.append("\(total) \(total == 1 ? "line" : "lines") changed")
+            }
+        }
+
+        guard result != nil || isPlainText || raw == nil,
+              !sections.isEmpty || exitCode != nil || !metadata.isEmpty
+        else { return nil }
+    }
+
+    private mutating func appendResult(_ title: String, _ text: String?, raw: String?) {
+        if let text, !text.isEmpty {
+            sections.append(Section(title, text))
+        } else if let raw, !raw.isEmpty {
+            sections.append(Section("Result", raw))
+        }
+    }
+
+    private static func object(_ raw: String?) -> [String: Any]? {
+        guard let raw, let root = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any] else { return nil }
+        if let structured = (root["structuredContent"] ?? root["structured_content"] ?? root["result"]) as? [String: Any] {
+            return structured
+        }
+        return root
+    }
+
+    private static func string(_ object: [String: Any]?, _ keys: String...) -> String? {
+        keys.lazy.compactMap { object?[$0] as? String }.first { !$0.isEmpty }
+    }
+
+    private static func searchMatches(_ object: [String: Any]?) -> String {
+        let groups = object?["content_match_groups"] as? [[String: Any]] ?? []
+        let matchingPaths = object?["path_match_lines"] as? [String] ?? []
+        let matches = groups.flatMap { group -> [String] in
+            guard let path = group["path"] as? String,
+                  let lines = group["lines"] as? [[String: Any]]
+            else { return [] }
+            return lines.compactMap { line in
+                guard let number = line["line_number"] as? Int, let text = line["line_text"] as? String else { return nil }
+                return "\(path):\(number): \(text)"
+            }
+        }
+        return (matches + matchingPaths).joined(separator: "\n")
+    }
+
+    private static func diffCounts(_ sections: [Section]) -> (added: Int, deleted: Int)? {
+        var added = 0
+        var deleted = 0
+        for section in sections {
+            for line in section.text.split(separator: "\n") {
+                if line.hasPrefix("+"), !line.hasPrefix("+++ ") { added += 1 }
+                if line.hasPrefix("-"), !line.hasPrefix("--- ") { deleted += 1 }
+            }
+        }
+        return added + deleted > 0 ? (added, deleted) : nil
+    }
+}
