@@ -6,7 +6,7 @@ import XCTest
 final class RemoteIrohFoundationTests: XCTestCase {
     @MainActor
     func testAppRejectsAnInvalidPairingCode() {
-        let model = RemoteAppModel()
+        let model = RemoteAppModel(credentialStore: RecoveryStore(record: nil), monitorNetwork: false)
         model.beginPairing()
         model.handleQRCode("invalid-pairing-link")
         XCTAssertEqual(model.transientError, RemotePairingError.invalidQRCode.errorDescription)
