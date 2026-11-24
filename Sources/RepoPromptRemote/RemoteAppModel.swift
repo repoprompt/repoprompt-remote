@@ -202,6 +202,7 @@ final class RemoteAppModel: ObservableObject {
     @Published private(set) var scannerGeneration = 0
     @Published private var pairingRecord: StoredRemotePairing?
     @Published private(set) var networkStatus: String = "Unknown"
+    @Published private(set) var reconnectHistory: [RemoteReconnectDiagnostics.Entry]
     @Published private(set) var lastConnectionEvent: String = "Not connected"
     @Published private(set) var transportStatus: String = "None"
     @Published private(set) var irohPathStatus: String = "Unknown"
@@ -212,7 +213,8 @@ final class RemoteAppModel: ObservableObject {
     struct ConnectionFactory {
         let prepare: (StoredRemotePairingAttempt, Data, UInt64, String) async throws
             -> (StoredRemoteCredential, any RemoteConnectionCandidate)
-        let open: (StoredRemoteCredential, Data, UInt64) async throws -> any RemoteConnectionCandidate
+        let open: (StoredRemoteCredential, Data, UInt64, inout RemoteReconnectDiagnostics.Attempt) async throws
+            -> any RemoteConnectionCandidate
 
         static var live: Self {
             Self(
@@ -221,9 +223,9 @@ final class RemoteAppModel: ObservableObject {
                         attempt: attempt, identitySecret: secret, generation: generation, deviceName: name
                     )
                 },
-                open: { stored, secret, generation in
+                open: { stored, secret, generation, diagnostics in
                     try await RemoteIrohGatewayTransport.open(
-                        stored: stored, identitySecret: secret, generation: generation
+                        stored: stored, identitySecret: secret, generation: generation, diagnostics: &diagnostics
                     )
                 }
             )
@@ -272,17 +274,28 @@ final class RemoteAppModel: ObservableObject {
     private var isSceneActive = true
     private var lastSatisfiedInterface: String?
     private var networkAvailable = true
+    private var reconnectNetwork = RemoteReconnectDiagnostics.Network.unknown
+    private var reconnectNetworkRevision = 0
+    private var reconnectAttempt = 0
+    private var recoveryStartedAt: ContinuousClock.Instant?
+    private var reconnectLogSentAt: [RemoteReconnectDiagnostics.Outcome: ContinuousClock.Instant] = [:]
+    private let reconnectHistoryDefaults: UserDefaults?
     private var automaticRecoveryPaused = false
 
     init(
         credentialStore: any RemoteCredentialStoring = RemoteCredentialStore(),
         irohIdentityStore: RemoteIrohIdentityStore = RemoteIrohIdentityStore(),
         connectionFactory: ConnectionFactory = .live,
-        monitorNetwork: Bool = true
+        monitorNetwork: Bool = true,
+        reconnectHistoryDefaults: UserDefaults? = .standard
     ) {
         self.credentialStore = credentialStore
         self.irohIdentityStore = irohIdentityStore
         self.connectionFactory = connectionFactory
+        self.reconnectHistoryDefaults = reconnectHistoryDefaults
+        let historyData = reconnectHistoryDefaults?.data(forKey: RemoteReconnectDiagnostics.historyKey) ?? Data()
+        let history = (try? JSONDecoder().decode([RemoteReconnectDiagnostics.Entry].self, from: historyData)) ?? []
+        reconnectHistory = Array(history.suffix(RemoteReconnectDiagnostics.historyLimit))
         notificationRelayURL = UserDefaults.standard.string(forKey: Self.notificationRelayURLKey) ?? ""
         notificationObservers = [
             NotificationCenter.default.addObserver(
@@ -323,6 +336,16 @@ final class RemoteAppModel: ObservableObject {
     private func startNetworkMonitoring() {
         networkMonitor = RemoteNetworkMonitor { [weak self] status, interface in
             guard let self else { return }
+            let newNetwork: RemoteReconnectDiagnostics.Network
+            switch status {
+            case .satisfied: newNetwork = .init(interface: interface)
+            case .unsatisfied: newNetwork = .offline
+            default: newNetwork = .unknown
+            }
+            if reconnectNetwork != newNetwork {
+                reconnectNetwork = newNetwork
+                reconnectNetworkRevision += 1
+            }
             switch status {
             case .satisfied:
                 let pathChanged = lastSatisfiedInterface.map { $0 != interface } ?? false
@@ -1329,6 +1352,8 @@ final class RemoteAppModel: ObservableObject {
     }
 
     private func clearLocalPairing(message: String = "Removing pairing from the Mac…") {
+        recoveryStartedAt = nil
+        reconnectAttempt = 0
         do {
             try credentialStore.delete()
         } catch {
@@ -1482,6 +1507,22 @@ final class RemoteAppModel: ObservableObject {
         }
     }
 
+    private func recordReconnect(_ entry: RemoteReconnectDiagnostics.Entry) {
+        reconnectHistory = RemoteReconnectDiagnostics.append(entry, to: reconnectHistory)
+        if let data = try? JSONEncoder().encode(reconnectHistory) {
+            reconnectHistoryDefaults?.set(data, forKey: RemoteReconnectDiagnostics.historyKey)
+        }
+        if entry.outcome == .connected {
+            recoveryStartedAt = nil
+            reconnectAttempt = 0
+        }
+        guard entry.outcome != .cancelled else { return }
+        let now = ContinuousClock.now
+        if let last = reconnectLogSentAt[entry.outcome], last.duration(to: now) < .seconds(60) { return }
+        reconnectLogSentAt[entry.outcome] = now
+        RemotePairingTelemetry.logReconnect(entry)
+    }
+
     private func establishConnection(
         _ record: StoredRemotePairing,
         generation: UUID
@@ -1493,6 +1534,15 @@ final class RemoteAppModel: ObservableObject {
         case .paired: nil
         }
         let start = ContinuousClock.now
+        var reconnect = RemoteReconnectDiagnostics.Attempt()
+        let networkAtStart = reconnectNetwork
+        let networkRevisionAtStart = reconnectNetworkRevision
+        let recoveryStart = recoveryStartedAt ?? reconnect.start
+        let attemptNumber = reconnectAttempt + 1
+        if attemptID == nil {
+            recoveryStartedAt = recoveryStart
+            reconnectAttempt = attemptNumber
+        }
         var stage = RemotePairingTelemetry.Stage.localIdentity
         let trace = attemptID.map { RemotePairingTelemetry.begin(attemptID: $0) }
         var traceStatus = RemotePairingTelemetry.TraceStatus.cancelled
@@ -1524,7 +1574,7 @@ final class RemoteAppModel: ObservableObject {
                 stored = credential
                 pairingProgress = hasPendingPairing ? "Contacting your Mac…" : nil
                 stage = .dial
-                transport = try await connectionFactory.open(credential, identity.secret, irohGeneration)
+                transport = try await connectionFactory.open(credential, identity.secret, irohGeneration, &reconnect)
                 candidate = transport
             }
             try checkConnectionGeneration(generation)
@@ -1540,9 +1590,11 @@ final class RemoteAppModel: ObservableObject {
             }
 
             stage = .authenticate
+            reconnect.enter(.authenticate)
             try await transport.authenticate()
             try checkConnectionGeneration(generation)
             stage = .initialSnapshot
+            reconnect.enter(.firstSync)
             pairingProgress = "Loading chats…"
             let newSnapshot = try await transport.firstSnapshot()
             try checkConnectionGeneration(generation)
@@ -1550,13 +1602,36 @@ final class RemoteAppModel: ObservableObject {
             Self.connectionLogger.info("Remote ready after \(String(describing: start.duration(to: .now)), privacy: .public)")
             if let attemptID {
                 RemotePairingTelemetry.complete(attemptID: attemptID, path: transport.irohPath)
+            } else {
+                recordReconnect(reconnect.finish(
+                    network: networkAtStart, endingNetwork: reconnectNetwork,
+                    networkChanged: networkRevisionAtStart != reconnectNetworkRevision, attempt: attemptNumber,
+                    recoveryStart: recoveryStart, outcome: .connected, route: transport.irohPath
+                ))
             }
             traceStatus = .ok
             return (transport, newSnapshot)
         } catch {
             let path = candidate?.irohPath
             candidate?.close()
-            if !Task.isCancelled {
+            let cancelled = Task.isCancelled || error is CancellationError
+            if attemptID == nil {
+                let networkChanged = networkRevisionAtStart != reconnectNetworkRevision
+                let reason: RemoteReconnectDiagnostics.Reason = if cancelled {
+                    networkChanged ? .networkChanged : .cancelled
+                } else {
+                    .init(error: error, stage: reconnect.stage)
+                }
+                recordReconnect(reconnect.finish(
+                    network: networkAtStart, endingNetwork: reconnectNetwork, networkChanged: networkChanged,
+                    attempt: attemptNumber, recoveryStart: recoveryStart, outcome: cancelled ? .cancelled : .failed,
+                    reason: reason, route: path
+                ))
+                if !cancelled {
+                    Self.connectionLogger.notice("Remote reconnect failed at \(reconnect.stage.rawValue, privacy: .public): \(reason.rawValue, privacy: .public)")
+                }
+            }
+            if !cancelled {
                 if let attemptID {
                     traceStatus = .internalError
                     RemotePairingTelemetry.failure(error, stage: stage, path: path, attemptID: attemptID)

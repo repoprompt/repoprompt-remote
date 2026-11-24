@@ -1,4 +1,5 @@
 import Foundation
+import RepoPromptIrohTransport
 @testable import RepoPromptRemote
 import RepoPromptRemoteProtocol
 import XCTest
@@ -6,7 +7,7 @@ import XCTest
 final class RemoteIrohFoundationTests: XCTestCase {
     @MainActor
     func testAppRejectsAnInvalidPairingCode() {
-        let model = RemoteAppModel(credentialStore: RecoveryStore(record: nil), monitorNetwork: false)
+        let model = RemoteAppModel(credentialStore: RecoveryStore(record: nil), monitorNetwork: false, reconnectHistoryDefaults: nil)
         model.beginPairing()
         model.handleQRCode("invalid-pairing-link")
         XCTAssertEqual(model.transientError, RemotePairingError.invalidQRCode.errorDescription)
@@ -120,7 +121,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
                 XCTAssertEqual(suppliedAttempt, attempt)
                 return (credential, transport)
             },
-            open: { _, _, _ in throw RecoveryFault.disconnected }
+            open: { _, _, _, _ in throw RecoveryFault.disconnected }
         )
         let first = recoveryModel(store: store, factory: factory)
         await waitForRecovery { first.connectionIssue != nil && !first.isRecovering }
@@ -149,7 +150,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         lostAck.onConfirm = { _ in throw RecoveryFault.disconnected }
         let first = recoveryModel(store: store, factory: .init(
             prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
-            open: { _, _, _ in lostAck }
+            open: { _, _, _, _ in lostAck }
         ))
         await waitForRecovery { first.connectionIssue != nil }
         XCTAssertFalse(first.isPaired)
@@ -164,7 +165,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         var opens = 0
         let restarted = recoveryModel(store: restartedStore, factory: .init(
             prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
-            open: { _, _, _ in
+            open: { _, _, _, _ in
                 opens += 1
                 return opens == 1 ? failedSync : ready
             }
@@ -190,16 +191,57 @@ final class RemoteIrohFoundationTests: XCTestCase {
         let ready = RecoveryTransport()
         let model = recoveryModel(store: store, factory: .init(
             prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
-            open: { _, _, _ in
+            open: { _, _, _, diagnostics in
+                diagnostics.enter(.endpointStartup)
+                diagnostics.enter(.dial)
+                diagnostics.savedRelayHint = true
                 dials += 1
-                if dials < 3 { throw RecoveryFault.disconnected }
+                if dials < 3 { throw TransportError.Failure("timed out connecting endpoint") }
                 return ready
             }
         ))
         await waitForRecovery(timeout: .seconds(6)) { model.connectionState == .connected }
         XCTAssertEqual(dials, 3)
         XCTAssertNil(model.connectionIssue)
+        let history = model.reconnectHistory
+        XCTAssertEqual(history.map(\.outcome), [.failed, .failed, .connected])
+        XCTAssertEqual(history.map(\.reason), [.dialTimeout, .dialTimeout, nil])
+        XCTAssertEqual(history.map(\.attempt), [1, 2, 3])
+        XCTAssertEqual(history.last?.stage, .firstSync)
+        XCTAssertEqual(history.last?.savedRelayHint, true)
+        XCTAssertGreaterThan(history.last?.recoveryMilliseconds ?? 0, history.last?.elapsedMilliseconds ?? 0)
+        XCTAssertEqual(history.last?.timings.map(\.stage), [.localIdentity, .endpointStartup, .dial, .authenticate, .firstSync])
         model.disconnect()
+    }
+
+    func testReconnectReportContainsOnlyClassifiedTransportData() throws {
+        let address = #"{"id":"private-endpoint","addrs":[{"Relay":"https://private-relay.example/"}]}"#
+        XCTAssertEqual(RemoteReconnectDiagnostics.relayHint(in: address), true)
+        XCTAssertEqual(RemoteReconnectDiagnostics.relayHint(in: #"{"id":"private-endpoint","addrs":[{"Ip":"192.0.2.1:1234"}]}"#), false)
+        XCTAssertNil(RemoteReconnectDiagnostics.relayHint(in: "{}"))
+
+        var attempt = RemoteReconnectDiagnostics.Attempt()
+        attempt.savedRelayHint = RemoteReconnectDiagnostics.relayHint(in: address)
+        attempt.enter(.dial)
+        let reason = RemoteReconnectDiagnostics.Reason(
+            error: TransportError.Failure("connect endpoint: private-error-detail"), stage: .dial
+        )
+        let entry = attempt.finish(
+            network: .wifi, endingNetwork: .cellular, networkChanged: true,
+            attempt: 1, recoveryStart: attempt.start, outcome: .failed, reason: reason, route: nil
+        )
+        let history = (0..<40).reduce(into: [RemoteReconnectDiagnostics.Entry]()) { result, _ in
+            result = RemoteReconnectDiagnostics.append(entry, to: result)
+        }
+        XCTAssertEqual(history.count, 30)
+        let persisted = try JSONDecoder().decode(
+            [RemoteReconnectDiagnostics.Entry].self, from: JSONEncoder().encode(history)
+        )
+        let report = try XCTUnwrap(RemoteReconnectDiagnostics.report(persisted))
+        XCTAssertTrue(report.contains("dial_failed"))
+        XCTAssertTrue(report.contains("cellular"))
+        XCTAssertFalse(report.contains("private-"))
+        XCTAssertFalse(report.contains("192.0.2.1"))
     }
 
     @MainActor
@@ -210,7 +252,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         var dials = 0
         let model = recoveryModel(store: store, factory: .init(
             prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
-            open: { _, _, _ in
+            open: { _, _, _, _ in
                 dials += 1
                 if dials == 1 { return initial }
                 if dials == 2 { throw RecoveryFault.disconnected }
@@ -234,7 +276,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         late.beforeSnapshot = { await withCheckedContinuation { firstSync = $0 } }
         let model = recoveryModel(store: store, factory: .init(
             prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
-            open: { _, _, _ in late }
+            open: { _, _, _, _ in late }
         ))
         await waitForRecovery { firstSync != nil }
         model.setSceneActive(false)
@@ -264,7 +306,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
                 generate: { Data(repeating: 1, count: 32) }
             ),
             connectionFactory: factory,
-            monitorNetwork: false
+            monitorNetwork: false, reconnectHistoryDefaults: nil
         )
     }
 

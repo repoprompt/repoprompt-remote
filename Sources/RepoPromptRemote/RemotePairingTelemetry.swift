@@ -6,6 +6,13 @@ import Sentry
 enum RemotePairingTelemetry {
     typealias TraceStatus = SentrySpanStatus
     private static let completionMessage = "Remote pairing completed on iOS"
+    private static let reconnectMessage = "Remote reconnect outcome on iOS"
+    private static let reconnectAttributes: Set<String> = [
+        "network", "ending_network", "network_changed", "attempt", "elapsed_ms", "recovery_ms",
+        "stage", "outcome", "reason", "saved_relay_hint", "local_relay_hint", "route",
+        "local_identity_ms", "binding_ms", "endpoint_startup_ms", "dial_ms", "authenticate_ms", "first_sync_ms",
+        "sentry.release", "sentry.environment",
+    ]
 
     enum Stage: String {
         case decodeQR = "decode_qr"
@@ -41,7 +48,7 @@ enum RemotePairingTelemetry {
             options.environment = "production"
             options.tracesSampleRate = 0.1
             #endif
-            // Scope collection to explicit pairing events and transactions.
+            // Scope collection to explicit pairing and reconnect diagnostics.
             options.sendDefaultPii = false
             options.enableCrashHandler = false
             options.enableWatchdogTerminationTracking = false
@@ -63,10 +70,16 @@ enum RemotePairingTelemetry {
                 return event
             }
             options.beforeSendLog = { log in
-                guard log.body == completionMessage else { return nil }
-                log.attributes = log.attributes.filter {
-                    ["pairing_attempt", "pairing_side", "pairing_path", "sentry.release", "sentry.environment"].contains($0.key)
+                let allowed: Set<String>
+                switch log.body {
+                case completionMessage:
+                    allowed = ["pairing_attempt", "pairing_side", "pairing_path", "sentry.release", "sentry.environment"]
+                case reconnectMessage:
+                    allowed = reconnectAttributes
+                default:
+                    return nil
                 }
+                log.attributes = log.attributes.filter { allowed.contains($0.key) }
                 return log
             }
         }
@@ -105,6 +118,32 @@ enum RemotePairingTelemetry {
             "pairing_side": "ios",
             "pairing_path": path?.rawValue ?? "unknown",
         ])
+    }
+
+    static func logReconnect(_ entry: RemoteReconnectDiagnostics.Entry) {
+        guard SentrySDK.isEnabled else { return }
+        var attributes: [String: Any] = [
+            "network": entry.network.rawValue,
+            "ending_network": entry.endingNetwork.rawValue,
+            "network_changed": entry.networkChanged,
+            "attempt": entry.attempt,
+            "elapsed_ms": entry.elapsedMilliseconds,
+            "recovery_ms": entry.recoveryMilliseconds,
+            "stage": entry.stage.rawValue,
+            "outcome": entry.outcome.rawValue,
+            "route": entry.route?.rawValue ?? "unknown",
+        ]
+        if let reason = entry.reason { attributes["reason"] = reason.rawValue }
+        if let hint = entry.savedRelayHint { attributes["saved_relay_hint"] = hint }
+        if let hint = entry.localRelayHint { attributes["local_relay_hint"] = hint }
+        for timing in entry.timings {
+            attributes["\(timing.stage.rawValue)_ms"] = timing.milliseconds
+        }
+        if entry.outcome == .failed {
+            SentrySDK.logger.warn(reconnectMessage, attributes: attributes)
+        } else {
+            SentrySDK.logger.info(reconnectMessage, attributes: attributes)
+        }
     }
 
     static func failureReason(_ error: Error) -> String {

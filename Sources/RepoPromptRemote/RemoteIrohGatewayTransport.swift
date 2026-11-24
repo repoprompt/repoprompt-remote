@@ -52,7 +52,10 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         identitySecret: Data,
         generation: UInt64
     ) async throws -> RemoteIrohGatewayTransport {
-        let transport = try await open(stored: stored, identitySecret: identitySecret, generation: generation)
+        var diagnostics = RemoteReconnectDiagnostics.Attempt()
+        let transport = try await open(
+            stored: stored, identitySecret: identitySecret, generation: generation, diagnostics: &diagnostics
+        )
         do {
             try await transport.authenticate()
             return transport
@@ -65,9 +68,13 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
     static func open(
         stored: StoredRemoteCredential,
         identitySecret: Data,
-        generation: UInt64
+        generation: UInt64,
+        diagnostics: inout RemoteReconnectDiagnostics.Attempt
     ) async throws -> RemoteIrohGatewayTransport {
+        diagnostics.enter(.binding)
         let binding = stored.irohBinding
+        diagnostics.savedRelayHint = RemoteReconnectDiagnostics.relayHint(in: binding.serverAddress.transportAddressJSON)
+            ?? (binding.serverAddress.relayURL == nil ? nil : true)
         guard binding.wireVersion == RemoteWireProtocol.currentVersion,
               let addressJSON = binding.serverAddress.transportAddressJSON,
               binding.serverAddress.endpointID == binding.expectedDesktopEndpointID
@@ -77,16 +84,19 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         guard try endpointID(for: identitySecret) == binding.localMobileEndpointID else {
             throw RemoteIrohTransportError.localIdentityChanged
         }
+        diagnostics.enter(.endpointStartup)
         let endpoint = try await RepoPromptIrohSpike.startApplication(
             secret: identitySecret,
             relayEnabled: true,
             generation: generation
         )
         do {
+            diagnostics.enter(.dial)
             let connection = try await dial(
                 endpoint: endpoint,
                 addressJSON: addressJSON
             )
+            diagnostics.localRelayHint = RemoteReconnectDiagnostics.relayHint(in: try? endpoint.snapshot().addressJson)
             guard connection.peerEndpointId() == binding.expectedDesktopEndpointID else {
                 connection.close()
                 throw RemoteIrohTransportError.serverEndpointMismatch
@@ -100,6 +110,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
                 expectedServerEndpointID: binding.expectedDesktopEndpointID
             )
         } catch {
+            diagnostics.localRelayHint = RemoteReconnectDiagnostics.relayHint(in: try? endpoint.snapshot().addressJson)
             try? await endpoint.shutdown()
             throw error
         }

@@ -105,6 +105,29 @@ struct PermissionsView: View {
                         Text("Scan the pairing code shown in RepoPrompt Settings on your Mac.")
                     }
                 }
+
+                Section {
+                    if let entry = model.reconnectHistory.last {
+                        LabeledContent("Last attempt", value: entry.startedAt, format: .dateTime.hour().minute().second())
+                        if let reason = entry.reason {
+                            LabeledContent("Outcome", value: reason.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                        } else {
+                            LabeledContent("Outcome", value: "Connected")
+                        }
+                        if let report = RemoteReconnectDiagnostics.report(model.reconnectHistory) {
+                            ShareLink(item: report) {
+                                Label("Share connection diagnostics", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                    } else {
+                        Text("No reconnect attempts recorded yet.")
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Connection diagnostics")
+                } footer: {
+                    Text("The last 30 attempts are stored on this phone, including when offline.")
+                }
             }
             .navigationTitle("Settings")
             .task {
