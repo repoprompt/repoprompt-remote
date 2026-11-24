@@ -40,18 +40,59 @@ struct StoredRemoteCredential: Codable, Equatable {
     }
 }
 
-enum RemoteCredentialStoreError: Error {
+struct StoredRemotePairingAttempt: Codable, Equatable {
+    let id: UUID
+    let advertisement: RemoteIrohPairingAdvertisement
+    let localEndpointID: String
+}
+
+enum StoredRemotePairing: Codable, Equatable {
+    case preparing(StoredRemotePairingAttempt)
+    case confirming(StoredRemoteCredential, attemptID: UUID)
+    case paired(StoredRemoteCredential)
+
+    func encodedForKeychain() throws -> Data {
+        let encoder = JSONEncoder()
+        switch self {
+        case let .paired(credential): return try encoder.encode(credential)
+        case .preparing, .confirming: return try encoder.encode(self)
+        }
+    }
+
+    static func decode(_ data: Data) throws -> Self {
+        let decoder = JSONDecoder()
+        if let pairing = try? decoder.decode(Self.self, from: data) { return pairing }
+        return .paired(try decoder.decode(StoredRemoteCredential.self, from: data))
+    }
+}
+
+enum RemoteCredentialStoreError: LocalizedError {
     case invalidKeychainData
     case keychain(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidKeychainData:
+            "The saved pairing could not be read. Retry Keychain or reset pairing."
+        case let .keychain(status):
+            "Pairing could not be accessed in Keychain (status \(status)). Unlock the phone and retry."
+        }
+    }
+}
+
+protocol RemoteCredentialStoring {
+    func load() throws -> StoredRemotePairing?
+    func save(_ pairing: StoredRemotePairing) throws
+    func delete() throws
 }
 
 /// Keychain-backed storage for the one paired device. The credential is never
 /// put in UserDefaults, snapshots, analytics, or diagnostic strings.
-final class RemoteCredentialStore {
+final class RemoteCredentialStore: RemoteCredentialStoring {
     private let service = "com.repoprompt.remote.credential"
     private let account = "paired-desktop"
 
-    func load() throws -> StoredRemoteCredential? {
+    func load() throws -> StoredRemotePairing? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -66,14 +107,14 @@ final class RemoteCredentialStore {
         guard status == errSecSuccess else { throw RemoteCredentialStoreError.keychain(status) }
         guard let data = result as? Data else { throw RemoteCredentialStoreError.invalidKeychainData }
         do {
-            return try JSONDecoder().decode(StoredRemoteCredential.self, from: data)
+            return try StoredRemotePairing.decode(data)
         } catch {
             throw RemoteCredentialStoreError.invalidKeychainData
         }
     }
 
-    func save(_ credential: StoredRemoteCredential) throws {
-        let data = try JSONEncoder().encode(credential)
+    func save(_ pairing: StoredRemotePairing) throws {
+        let data = try pairing.encodedForKeychain()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

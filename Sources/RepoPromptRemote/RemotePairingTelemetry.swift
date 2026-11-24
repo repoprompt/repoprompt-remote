@@ -10,23 +10,14 @@ enum RemotePairingTelemetry {
     enum Stage: String {
         case decodeQR = "decode_qr"
         case localIdentity = "local_identity"
-        case startEndpoint = "start_endpoint"
-        case dialLocal = "dial_local"
-        case dialDirect = "dial_direct"
-        case dialRelay = "dial_relay"
-        case verifyPeer = "verify_peer"
-        case pairingHello = "pairing_hello"
-        case decodeResponse = "decode_response"
-        case authenticate
+        case saveAttempt = "save_attempt"
+        case preparePairing = "prepare_pairing"
+        case dial
         case saveCredential = "save_credential"
-        case initialSnapshot = "initial_snapshot"
-    }
-
-    struct Attempt {
-        var stage: Stage = .localIdentity
-        var underlyingFailure: String?
-        var path: RemoteIrohPathKind?
-        var helloSent = false
+        case confirmPairing = "confirm_pairing"
+        case saveConfirmation = "save_confirmation"
+        case authenticate
+        case initialSnapshot = "first_sync"
     }
 
     @MainActor
@@ -89,21 +80,20 @@ enum RemotePairingTelemetry {
         return span
     }
 
-    static func failure(_ error: Error, attempt: Attempt, attemptID: UUID? = nil) {
+    static func failure(_ error: Error, stage: Stage, path: RemoteIrohPathKind? = nil, attemptID: UUID? = nil) {
         guard SentrySDK.isEnabled else { return }
-        let reason = attempt.underlyingFailure ?? failureReason(error)
+        let reason = failureReason(error)
         let event = Event(level: .error)
-        event.message = SentryMessage(formatted: "Remote pairing failed: \(attempt.stage.rawValue) / \(reason)")
-        event.fingerprint = ["remote-pairing", attempt.stage.rawValue, reason]
+        event.message = SentryMessage(formatted: "Remote pairing failed: \(stage.rawValue) / \(reason)")
+        event.fingerprint = ["remote-pairing", stage.rawValue, reason]
         var tags = [
             "component": "remote_pairing",
             "pairing_side": "ios",
-            "pairing_stage": attempt.stage.rawValue,
+            "pairing_stage": stage.rawValue,
             "pairing_reason": reason,
-            "pairing_hello_sent": String(attempt.helloSent),
         ]
         if let attemptID { tags["pairing_attempt"] = attemptID.uuidString.lowercased() }
-        if let path = attempt.path { tags["pairing_path"] = path.rawValue }
+        if let path { tags["pairing_path"] = path.rawValue }
         event.tags = tags
         SentrySDK.capture(event: event)
     }
@@ -127,12 +117,21 @@ enum RemotePairingTelemetry {
         case RemoteIrohTransportError.serverEndpointMismatch: "endpoint_mismatch"
         case RemoteIrohTransportError.frameTooLarge: "frame_too_large"
         case RemoteIrohTransportError.unexpectedFrame: "unexpected_frame"
+        case RemoteIrohTransportError.confirmationUnavailable: "confirmation_unavailable"
         case RemoteGatewayError.credentialRejected: "credential_rejected"
         case RemoteGatewayError.invalidResponse: "invalid_response"
         case RemoteGatewayError.requestRejected(let response):
             // A remote peer controls the full response. Only known codes enter telemetry.
             switch response.code {
             case "pairing_failed": "desktop_rejected_pairing"
+            case "pairing_expired": "expired_code"
+            case "pairing_unavailable": "unavailable_code"
+            case "pairing_upgrade_required": "upgrade_required"
+            case "pairing_confirmation_rejected": "confirmation_rejected"
+            case "pairing_storage_unavailable": "desktop_storage_unavailable"
+            case "pairing_in_progress": "pairing_in_progress"
+            case "already_paired": "already_paired"
+            case "gateway_unavailable": "gateway_unavailable"
             case "transport_error": "desktop_transport_error"
             default: "desktop_rejected_request"
             }

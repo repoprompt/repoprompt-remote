@@ -30,8 +30,20 @@ interaction.
 The QR payload contains the Mac's Iroh endpoint address and a short-lived,
 single-use pairing secret. The phone verifies the Mac's endpoint identity
 before sending the secret, and the Mac verifies the phone's authenticated
-endpoint identity before accepting it. The Mac issues the device credential
-only after successful pairing.
+endpoint identity before accepting it. The Mac persists a pending credential
+and binds it to the phone's attempt ID and endpoint. The phone saves the
+credential before sending authenticated confirmation. Only the confirmed
+credential authorizes application access.
+
+The same phone can resume prepare or confirm after a lost reply or restart.
+Either app can recover the saved intermediate state from Keychain. The Mac
+can issue a new code after an attempt expires or the user cancels it. Existing
+pairings remain readable. Fresh pairings require updated Mac and iPhone apps.
+
+The authenticated session earns Connected status when the phone returns the
+first snapshot's server-generated sync ticket. Offline views retain the last
+sync, and the phone reconnects with backoff and jitter. An unconfirmed command
+result asks the user to check the Mac before resubmitting.
 
 ### Transport eavesdropping or impersonation
 
