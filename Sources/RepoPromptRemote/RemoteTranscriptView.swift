@@ -229,6 +229,13 @@ struct RemoteChatView: View {
             .onChange(of: runNoticeState) { _, _ in
                 followLatest(using: proxy)
             }
+            .onChange(of: session?.pendingInteraction?.id) { _, interactionID in
+                if interactionID != nil {
+                    if follow.receive(.newActivity) { followLatest(using: proxy) }
+                } else {
+                    followLatest(using: proxy)
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     Color.clear
@@ -1397,6 +1404,7 @@ struct RemoteChatComposer: View {
 
     @FocusState private var isInputFocused: Bool
     @State private var message = ""
+    @State private var interviewFirst = false
     @StateObject private var attachments = RemoteAttachmentDraft()
     @State private var pendingSend: (id: UUID, draft: String)?
     @State private var pendingCancelID: UUID?
@@ -1463,6 +1471,16 @@ struct RemoteChatComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if case .newChat = destination {
+                Toggle(isOn: $interviewFirst) {
+                    Label("Interview first", systemImage: "bubble.left.and.bubble.right")
+                        .font(.subheadline.weight(.medium))
+                }
+                .controlSize(.small)
+                .tint(Color.remoteWarmOrange)
+                .disabled(!model.canControlChat || pendingCommandID != nil)
+                .accessibilityHint("Ask clarifying questions before starting work.")
+            }
             if policy.isInteractionBlocking {
                 Label("Respond to the request above", systemImage: "arrow.up")
                     .font(.caption.weight(.semibold))
@@ -1557,6 +1575,7 @@ struct RemoteChatComposer: View {
                 if completion.outcome == .accepted {
                     if message == pendingSend.draft { message = "" }
                     attachments.clear()
+                    interviewFirst = false
                 }
             }
             if activity.completion(for: pendingCancelID) != nil { pendingCancelID = nil }
@@ -1616,6 +1635,7 @@ struct RemoteChatComposer: View {
                 agentID: selection?.agentID,
                 modelID: selection?.modelID,
                 reasoningEffort: selection?.reasoningEffort,
+                interviewFirst: interviewFirst,
                 attachments: attachments.files
             )
         case let .session(sessionID, runState):

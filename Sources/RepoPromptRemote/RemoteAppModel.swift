@@ -579,6 +579,7 @@ final class RemoteAppModel: ObservableObject {
         agentID: String? = nil,
         modelID: String? = nil,
         reasoningEffort: String? = nil,
+        interviewFirst: Bool = false,
         attachments: [RemoteDraftAttachment] = []
     ) -> UUID {
         let request = RemoteCommandRequest(
@@ -589,6 +590,7 @@ final class RemoteAppModel: ObservableObject {
             modelID: modelID?.isEmpty == true ? nil : modelID,
             reasoningEffort: reasoningEffort?.isEmpty == true ? nil : reasoningEffort,
             workflowID: workflowID?.isEmpty == true ? nil : workflowID,
+            interviewFirst: interviewFirst ? true : nil,
             attachmentIDs: attachments.isEmpty ? nil : attachments.map(\.id)
         )
         return sendCommand(request, attachments: attachments)
@@ -771,7 +773,8 @@ final class RemoteAppModel: ObservableObject {
         decision: String? = nil,
         message: String? = nil,
         answers: [String: [String]] = [:],
-        secret: String? = nil
+        secret: String? = nil,
+        questionAnswers: [String: RemoteQuestionAnswer]? = nil
     ) -> UUID {
         sendCommand(
             RemoteCommandRequest(
@@ -782,7 +785,8 @@ final class RemoteAppModel: ObservableObject {
                 message: message,
                 decision: decision,
                 answers: answers,
-                secret: secret
+                secret: secret,
+                questionAnswers: questionAnswers
             )
         )
     }
@@ -1833,12 +1837,15 @@ final class RemoteAppModel: ObservableObject {
                     if request.operation == .configureSession || request.operation == .configureTools {
                         try? await refreshSnapshot()
                     }
+                    let message = await refreshedRejectionMessage(
+                        request, fallback: response.message ?? "The command was not accepted."
+                    )
                     recordCommandCompletion(RemoteCommandCompletion(
                         commandID: request.commandID,
                         operation: request.operation,
                         outcome: .rejected
                     ))
-                    presentError(response.message ?? "The command was not accepted.")
+                    presentError(message)
                     return
                 }
 
@@ -1899,8 +1906,8 @@ final class RemoteAppModel: ObservableObject {
                     if request.operation == .respond,
                        case let .requestRejected(response) = gatewayError, response.code == "command_rejected"
                     {
-                        try? await refreshSnapshot()
-                        presentError("That interaction is no longer active. Refreshed from the Mac.")
+                        let message = await refreshedRejectionMessage(request, fallback: response.message)
+                        presentError(message)
                     } else {
                         presentError(gatewayError.localizedDescription)
                     }
@@ -1912,6 +1919,20 @@ final class RemoteAppModel: ObservableObject {
             }
         }
         return request.commandID
+    }
+
+    private func refreshedRejectionMessage(_ request: RemoteCommandRequest, fallback: String) async -> String {
+        guard request.operation == .respond, let interactionID = request.interactionID else { return fallback }
+        do {
+            try await refreshSnapshot()
+        } catch {
+            return fallback
+        }
+        let currentID = snapshot?.sessions.first(where: { $0.sessionID == request.sessionID })?.pendingInteraction?.id
+        if currentID.flatMap(UUID.init(uuidString:)) != interactionID {
+            return "That request is no longer active. The chat has been refreshed."
+        }
+        return fallback
     }
 
     private func uploadAttachments(
