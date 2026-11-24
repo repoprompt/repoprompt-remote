@@ -20,11 +20,13 @@
 		5C6B73E7B6EF8356E33D87AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2C6F2A38764CE8EF1A30C5C /* Assets.xcassets */; };
 		6064E2F909B033D4CB08305C /* RemoteTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0C3A53BDD1A546414AF4D4 /* RemoteTabView.swift */; };
 		64A559A1E0CD3B0D7E05D30C /* RemoteCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */; };
+		6A2853456826BC517B29BC35 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 4BAD712468BE8B87AA709273 /* Sentry */; };
 		6C2669FE2221F8A72818AE10 /* RemoteTranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49177B586584F009F6C5B105 /* RemoteTranscriptPresentation.swift */; };
 		6F97D4707DE71F580ACAD266 /* RemoteMobileShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD4002D9D4983164EB1FD0D /* RemoteMobileShell.swift */; };
 		7BB90B7C639FA3239901F959 /* RemoteAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04395513075E87717C94213B /* RemoteAppModel.swift */; };
 		9A89D01B1FB5B77D0C0DA5F8 /* RemoteTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCE4DCAC948BE733BF48A48 /* RemoteTranscriptView.swift */; };
 		9D7DE4E95E4892D2D5453FE2 /* RemoteUnpairCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB452D925881CC69C7A91866 /* RemoteUnpairCoordinator.swift */; };
+		A1FB73BC8F5F41CD7BE57F96 /* RemotePairingTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */; };
 		AD8C846E223E165A5114BDBC /* RemotePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA570CB291EFFF595B985E2 /* RemotePairing.swift */; };
 		BE5B62733F425F1DD5E743CC /* RemoteInteractionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39BB706F621CCDBC66A5EF89 /* RemoteInteractionCard.swift */; };
 		C0105B52C8025271DE24B21C /* RemoteModelProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D09925835CDFE17D38F84BED /* RemoteModelProjectionTests.swift */; };
@@ -65,6 +67,7 @@
 		53671A8EB4D676B03E2D2877 /* RemoteAttachmentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAttachmentPicker.swift; sourceTree = "<group>"; };
 		56F00D1D9CA144F589A3B128 /* RemoteSnapshotReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSnapshotReducer.swift; sourceTree = "<group>"; };
 		623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCredentialStore.swift; sourceTree = "<group>"; };
+		6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePairingTelemetry.swift; sourceTree = "<group>"; };
 		6F6E6B94165C3C59ED6A712E /* RemoteGatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteGatewayClient.swift; sourceTree = "<group>"; };
 		79356C783F2B9936A3B9B988 /* RepoPromptRemoteProtocol */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RepoPromptRemoteProtocol; path = Packages/RepoPromptRemoteProtocol; sourceTree = SOURCE_ROOT; };
 		7F991FE43751DDC854D08D07 /* RepoPromptRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoPromptRemoteApp.swift; sourceTree = "<group>"; };
@@ -96,6 +99,7 @@
 			files = (
 				DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteProtocol in Frameworks */,
 				D00DF15172DF2E989DEACB6B /* RepoPromptIrohTransport in Frameworks */,
+				6A2853456826BC517B29BC35 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -160,6 +164,7 @@
 				21B76DFCE6CB4D4A462C8A8B /* RemoteNetworkMonitor.swift */,
 				903ED92338FD578C6DD3A18D /* RemoteNotificationDelegate.swift */,
 				9AA570CB291EFFF595B985E2 /* RemotePairing.swift */,
+				6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */,
 				F21736F4CB4F7F9402069AEB /* RemoteSessionNavigationProjection.swift */,
 				E0E513FA2AF090C3827A3928 /* RemoteSessionStatusPlate.swift */,
 				56F00D1D9CA144F589A3B128 /* RemoteSnapshotReducer.swift */,
@@ -215,6 +220,7 @@
 			packageProductDependencies = (
 				2684ACB06312048BFB9BE2AF /* RepoPromptRemoteProtocol */,
 				6B84038F900779CD1A71EB2B /* RepoPromptIrohTransport */,
+				4BAD712468BE8B87AA709273 /* Sentry */,
 			);
 			productName = RepoPromptRemote;
 			productReference = F0848AD1E617300421A4B4BE /* RepoPromptRemote.app */;
@@ -247,6 +253,7 @@
 			mainGroup = 82997F597D33B398712F25D9;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				818449FB5FA5D292AE7ED02A /* XCLocalSwiftPackageReference "Packages/RepoPromptIrohTransport" */,
 				03E2CE7D2CAF60A249FA3FA6 /* XCLocalSwiftPackageReference "Packages/RepoPromptRemoteProtocol" */,
 			);
@@ -290,6 +297,7 @@
 				F1A9C0300C50824791EBD37C /* RemoteNetworkMonitor.swift in Sources */,
 				2B0137D5CD737461F4B7CAD7 /* RemoteNotificationDelegate.swift in Sources */,
 				AD8C846E223E165A5114BDBC /* RemotePairing.swift in Sources */,
+				A1FB73BC8F5F41CD7BE57F96 /* RemotePairingTelemetry.swift in Sources */,
 				27221FD8AC6ED19BA066891B /* RemoteSessionNavigationProjection.swift in Sources */,
 				FFCF150646C3FB3CFE172280 /* RemoteSessionStatusPlate.swift in Sources */,
 				2874FED6E5A20C465F709569 /* RemoteSnapshotReducer.swift in Sources */,
@@ -572,10 +580,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
+			requirement = {
+				kind = exactVersion;
+				version = 9.35.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		2684ACB06312048BFB9BE2AF /* RepoPromptRemoteProtocol */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RepoPromptRemoteProtocol;
+		};
+		4BAD712468BE8B87AA709273 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 		6B84038F900779CD1A71EB2B /* RepoPromptIrohTransport */ = {
 			isa = XCSwiftPackageProductDependency;

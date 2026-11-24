@@ -23,5 +23,8 @@ build_args=(
 if [[ -n "${DEVELOPMENT_TEAM:-}" ]]; then
   build_args+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
 fi
+if [[ -n "${REPOPROMPT_SENTRY_DSN:-}" ]]; then
+  build_args+=("REPOPROMPT_SENTRY_DSN=$REPOPROMPT_SENTRY_DSN")
+fi
 
 xcodebuild "${build_args[@]}" build

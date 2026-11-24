@@ -4,6 +4,21 @@ import RepoPromptRemoteProtocol
 import XCTest
 
 final class RemoteIrohFoundationTests: XCTestCase {
+    @MainActor
+    func testAppRejectsAnInvalidPairingCode() {
+        let model = RemoteAppModel()
+        model.beginPairing()
+        model.handleQRCode("invalid-pairing-link")
+        XCTAssertEqual(model.transientError, RemotePairingError.invalidQRCode.errorDescription)
+    }
+
+    func testPairingTelemetryClassifiesUntrustedPeerErrors() {
+        let untrusted = RemoteGatewayError.requestRejected(.init(code: "untrusted-code", message: "untrusted-message"))
+        XCTAssertEqual(RemotePairingTelemetry.failureReason(untrusted), "desktop_rejected_request")
+        let rejected = RemoteGatewayError.requestRejected(.init(code: "pairing_failed", message: "untrusted-message"))
+        XCTAssertEqual(RemotePairingTelemetry.failureReason(rejected), "desktop_rejected_pairing")
+    }
+
     func testIrohPairingCodeDecodesFromJSONAndCopiedLink() throws {
         let now = Date(timeIntervalSince1970: 1_000)
         let code = makeIrohCode(expiresAt: now.addingTimeInterval(300))

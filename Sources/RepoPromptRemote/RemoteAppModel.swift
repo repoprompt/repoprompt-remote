@@ -435,6 +435,7 @@ final class RemoteAppModel: ObservableObject {
             clearTransientError()
             startPairing(advertisement)
         } catch {
+            RemotePairingTelemetry.failure(error, attempt: .init(stage: .decodeQR))
             presentError(error.localizedDescription)
         }
     }
@@ -1295,6 +1296,10 @@ final class RemoteAppModel: ObservableObject {
     ) async {
         guard pairingAttemptID == attemptID else { return }
         connectionState = .discovering
+        var diagnostics = RemotePairingTelemetry.Attempt()
+        let trace = RemotePairingTelemetry.begin(attemptID: attemptID)
+        var traceStatus = RemotePairingTelemetry.TraceStatus.cancelled
+        defer { trace.finish(status: traceStatus) }
         var candidateTransport: RemoteIrohGatewayTransport?
         do {
             let identity = try irohIdentityStore.loadOrCreate()
@@ -1303,7 +1308,9 @@ final class RemoteAppModel: ObservableObject {
                 advertisement: advertisement,
                 identitySecret: identity.secret,
                 generation: irohGeneration,
-                deviceName: UIDevice.current.name
+                deviceName: UIDevice.current.name,
+                attemptID: attemptID,
+                diagnostics: &diagnostics
             )
             candidateTransport = transport
             try Task.checkCancellation()
@@ -1321,8 +1328,10 @@ final class RemoteAppModel: ObservableObject {
                     serverAddress: advertisement.server
                 )
             )
+            diagnostics.stage = .saveCredential
             try credentialStore.save(stored)
             storedCredential = stored
+            diagnostics.stage = .initialSnapshot
             try await refreshSnapshot(using: transport)
             guard pairingAttemptID == attemptID, isSceneActive else {
                 transport.close()
@@ -1339,9 +1348,13 @@ final class RemoteAppModel: ObservableObject {
             startEventStream()
             refreshDiagnostics()
             registerPendingNotificationIfPossible()
+            RemotePairingTelemetry.complete(attemptID: attemptID, path: diagnostics.path)
+            traceStatus = .ok
         } catch {
             candidateTransport?.close()
             guard !isExpectedCancellation(error), pairingAttemptID == attemptID, isSceneActive else { return }
+            traceStatus = .internalError
+            RemotePairingTelemetry.failure(error, attempt: diagnostics, attemptID: attemptID)
             connectionState = storedCredential == nil ? .unpaired : .disconnected
             lastConnectionEvent = connectionEvent(for: error)
             presentError(error.localizedDescription)

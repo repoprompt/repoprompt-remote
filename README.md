@@ -98,6 +98,12 @@ For Simulator development, use **Copy pairing link** on the Mac and paste the `r
 
 Only one phone is paired at a time. Pairing a replacement device invalidates the previous credential; you can also revoke a lost device from the Mac.
 
+### Pairing diagnostics
+
+The iOS app sends pairing failures to the [`repoprompt-remote` Sentry project](https://repoprompt.sentry.io/issues/?project=4512485498683392) when built with `REPOPROMPT_SENTRY_DSN`. Pass the client DSN as an Xcode build setting, or export it when using `./build-phone.sh`. The release workflow reads the same name from a GitHub Actions repository variable. Debug builds also accept a launch environment override. Set `REPOPROMPT_TELEMETRY_DISABLED=1` in the launch environment to turn off collection.
+
+The macOS gateway sends its pairing diagnostics through the existing RepoPrompt CE Sentry configuration and telemetry preference. In Sentry, search Issues and Explore Logs across both projects for `pairing_attempt:<uuid>` to match a phone failure to the gateway request or find when the gateway sent a response. Failures before a pairing request reaches the Mac only have an iOS event. The diagnostic payload uses fixed stage and reason codes, the Iroh path category when available, and a new UUID for each request. It excludes pairing links, credentials, device names, endpoint addresses, and workspace content.
+
 ## Security model
 
 Remote access is opt-in. Iroh connects the paired devices directly or uses an Iroh relay when a direct path is unavailable.

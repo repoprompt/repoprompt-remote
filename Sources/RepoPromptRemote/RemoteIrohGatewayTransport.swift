@@ -94,8 +94,11 @@ final class RemoteIrohGatewayTransport: RemoteGatewayTransport, @unchecked Senda
         advertisement: RemoteIrohPairingAdvertisement,
         identitySecret: Data,
         generation: UInt64,
-        deviceName: String
+        deviceName: String,
+        attemptID: UUID,
+        diagnostics: inout RemotePairingTelemetry.Attempt
     ) async throws -> (RemoteIrohPairingResponse, RemoteIrohGatewayTransport) {
+        diagnostics.stage = .startEndpoint
         guard let addressJSON = advertisement.server.transportAddressJSON else {
             throw RemoteIrohTransportError.bindingUnavailable
         }
@@ -104,13 +107,15 @@ final class RemoteIrohGatewayTransport: RemoteGatewayTransport, @unchecked Senda
             relayEnabled: true,
             generation: generation
         )
-        var pairingRequestWasSent = false
         do {
             let localEndpointID = try endpoint.snapshot().endpointId
             let connection = try await connectStaged(
                 endpoint: endpoint,
-                addressJSON: addressJSON
+                addressJSON: addressJSON,
+                onDial: { diagnostics.stage = $0 }
             )
+            diagnostics.path = pathKind(from: connection.pathSummary())
+            diagnostics.stage = .verifyPeer
             guard connection.peerEndpointId() == advertisement.server.endpointID else {
                 connection.close()
                 throw RemoteIrohTransportError.serverEndpointMismatch
@@ -124,12 +129,13 @@ final class RemoteIrohGatewayTransport: RemoteGatewayTransport, @unchecked Senda
             )
             let hello = try RemoteWireFrame(
                 kind: .pairingHello,
-                messageID: UUID(),
+                messageID: attemptID,
                 encoding: RemotePairingHello(request: request)
             )
             // From this point onward the one-time secret may have been consumed
             // even if the response is lost. Request a fresh code after an ambiguous outcome.
-            pairingRequestWasSent = true
+            diagnostics.stage = .pairingHello
+            diagnostics.helloSent = true
             let responseFrame = try await send(
                 hello,
                 over: connection,
@@ -141,6 +147,7 @@ final class RemoteIrohGatewayTransport: RemoteGatewayTransport, @unchecked Senda
             else {
                 throw remoteError(from: responseFrame)
             }
+            diagnostics.stage = .decodeResponse
             let response = try JSONDecoder().decode(
                 RemoteIrohPairingResponse.self,
                 from: responseFrame.payload
@@ -158,11 +165,13 @@ final class RemoteIrohGatewayTransport: RemoteGatewayTransport, @unchecked Senda
                 credential: response.pairingResponse.credential,
                 expectedServerEndpointID: advertisement.server.endpointID
             )
+            diagnostics.stage = .authenticate
             try await transport.authenticate()
             return (response, transport)
         } catch {
             try? await endpoint.shutdown()
-            if pairingRequestWasSent {
+            if diagnostics.helloSent {
+                diagnostics.underlyingFailure = RemotePairingTelemetry.failureReason(error)
                 throw RemoteIrohTransportError.pairingOutcomeUnknown
             }
             throw error
@@ -378,15 +387,17 @@ final class RemoteIrohGatewayTransport: RemoteGatewayTransport, @unchecked Senda
 
     private static func connectStaged(
         endpoint: TransportEndpoint,
-        addressJSON: String
+        addressJSON: String,
+        onDial: (RemotePairingTelemetry.Stage) -> Void = { _ in }
     ) async throws -> TransportConnection {
         var lastError: Error = RemoteIrohTransportError.bindingUnavailable
-        let policies: [(allowRelay: Bool, localOnly: Bool, timeout: UInt64)] = [
-            (false, true, 3_500),
-            (false, false, 8_000),
-            (true, false, 20_000)
+        let policies: [(stage: RemotePairingTelemetry.Stage, allowRelay: Bool, localOnly: Bool, timeout: UInt64)] = [
+            (.dialLocal, false, true, 3_500),
+            (.dialDirect, false, false, 8_000),
+            (.dialRelay, true, false, 20_000)
         ]
         for policy in policies {
+            onDial(policy.stage)
             do {
                 return try await endpoint.connectWithPolicy(
                     addressJson: addressJSON,

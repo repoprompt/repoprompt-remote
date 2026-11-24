@@ -6,6 +6,10 @@ struct RepoPromptRemoteApp: App {
     @UIApplicationDelegateAdaptor(RemoteNotificationDelegate.self) private var notificationDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        RemotePairingTelemetry.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
