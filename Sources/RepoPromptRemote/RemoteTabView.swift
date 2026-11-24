@@ -15,11 +15,11 @@ struct RemoteErrorBanner: View {
     var body: some View {
         Label(message, systemImage: "exclamationmark.triangle.fill")
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.remoteFailure)
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(.red, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
             .shadow(radius: 4, y: 2)
             .transition(.move(edge: .top).combined(with: .opacity))
     }
@@ -27,10 +27,20 @@ struct RemoteErrorBanner: View {
 
 struct PermissionsView: View {
     @EnvironmentObject private var model: RemoteAppModel
+    @AppStorage(RemoteAppearance.storageKey) private var appearance = RemoteAppearance.system
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Appearance") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(RemoteAppearance.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 if model.isPaired {
                     Section {
                         LabeledContent(
@@ -55,7 +65,8 @@ struct PermissionsView: View {
                     }
 
                     Section {
-                        TextField("Relay URL (optional)", text: $model.notificationRelayURL)
+                        TextField("Relay URL (optional)", text: $model.notificationRelayURL, prompt: Text(""))
+                            .remoteInputPrompt("Relay URL (optional)", isEmpty: model.notificationRelayURL.isEmpty)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.URL)
                             .autocorrectionDisabled()
@@ -80,7 +91,7 @@ struct PermissionsView: View {
                                 value: diagnostics.lastSnapshotAt.map { Self.dateFormatter.string(from: $0) } ?? "Never"
                             )
                             if let error = diagnostics.notificationLastError {
-                                Text(error).font(.caption).foregroundStyle(.red)
+                                Text(error).font(.caption).foregroundStyle(Color.remoteFailure)
                             }
                             Button("Refresh diagnostics") { model.refreshDiagnostics() }
                         }

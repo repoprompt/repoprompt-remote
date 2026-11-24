@@ -34,7 +34,6 @@ targets:
           - UIInterfaceOrientationPortrait
         UIRequiresFullScreen: true
         UIStatusBarHidden: false
-        UIStatusBarStyle: UIStatusBarStyleDarkContent
         UILaunchScreen: {}
     sources:
       - path: Sources/RepoPromptRemote

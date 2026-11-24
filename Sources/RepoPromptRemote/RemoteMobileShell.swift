@@ -471,7 +471,7 @@ private struct RemoteNavigationDrawer: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 9) {
                 Circle()
-                    .fill(model.connectionState == .connected ? Color.green : Color.remoteWarmOrange)
+                    .fill(model.connectionState == .connected ? Color.remoteSuccess : Color.remoteWarmOrange)
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.snapshot?.desktop.displayName ?? "Paired Mac")

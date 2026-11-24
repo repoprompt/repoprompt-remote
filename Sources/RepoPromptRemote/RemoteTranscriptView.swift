@@ -476,7 +476,7 @@ private struct RemoteNarrativeRow: View {
                 if let text = item.text, !text.isEmpty {
                     RemoteMarkdownText(
                         markdown: text,
-                        textColor: UIColor.white.withAlphaComponent(isUser ? 1 : (isPreamble ? 0.68 : 0.92))
+                        textColor: isPreamble ? .secondaryLabel : .label
                     )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -489,7 +489,7 @@ private struct RemoteNarrativeRow: View {
                 RemoteTranscriptAttachments(sessionID: sessionID, item: item, alignment: isUser ? .trailing : .leading)
                 Text(item.timestamp, style: .time)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
             if !isUser { Spacer(minLength: 18) }
         }
@@ -609,7 +609,7 @@ private struct RemoteFullImageViewer: View {
         NavigationStack {
             GeometryReader { geometry in
                 ZStack {
-                    Color.black.ignoresSafeArea()
+                    Color(uiColor: .systemBackground).ignoresSafeArea()
                     if let image {
                         let scale = min(max(zoom * magnification, 1), 5)
                         ScrollView([.horizontal, .vertical], showsIndicators: false) {
@@ -654,7 +654,6 @@ private struct RemoteFullImageViewer: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
         .task(id: retry) {
             failure = nil
             do {
@@ -843,7 +842,6 @@ struct RemoteMarkdownText: View {
             RemoteMarkdownImage(alt: alt, url: url)
         case .thematicBreak:
             Divider()
-                .overlay(Color.white.opacity(0.16))
         default:
             EmptyView()
         }
@@ -939,7 +937,7 @@ struct RemoteSelectableText: UIViewRepresentable {
         view.isScrollEnabled = false
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        view.linkTextAttributes = [.foregroundColor: UIColor.link, .underlineStyle: NSUnderlineStyle.single.rawValue]
+        view.linkTextAttributes = [.foregroundColor: UIColor.remoteLink, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         let paragraphTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.selectParagraph(_:)))
@@ -1073,7 +1071,7 @@ private struct RemoteRunNotice: View {
             Text((isWorking || state == .waitingForInput) ? activity ?? title : title)
         }
         .font(.footnote)
-        .foregroundStyle(state == .failed ? Color.red : .secondary)
+        .foregroundStyle(state == .failed ? Color.remoteFailure : .secondary)
         .padding(.horizontal, 10)
         .accessibilityElement(children: .combine)
     }
@@ -1093,7 +1091,7 @@ private struct RemoteActivityGroupView: View {
         Array(Set(items.compactMap(\.toolName))).sorted()
     }
 
-    private var accent: Color { exceptional ? .red : .secondary }
+    private var accent: Color { exceptional ? .remoteFailure : .secondary }
 
     private var aggregateStatus: RemoteToolActivityState? {
         RemoteToolActivityState.aggregate(items)
@@ -1236,9 +1234,9 @@ private struct RemoteActivityItemView: View {
 private extension RemoteToolActivityState {
     var tint: Color {
         switch self {
-        case .running, .warning: .orange
-        case .completed: .green
-        case .failed: .red
+        case .running, .warning: .remoteWarmOrange
+        case .completed: .remoteSuccess
+        case .failed: .remoteFailure
         case .pending, .cancelled, .unknown: .secondary
         }
     }
@@ -1388,13 +1386,14 @@ struct RemoteChatComposer: View {
                 RemoteAttachmentDraftStrip(draft: attachments, isSending: pendingCommandID != nil)
             }
 
-            TextField("Send a Message...", text: $message, axis: .vertical)
+            TextField("Send a Message...", text: $message, prompt: Text(""), axis: .vertical)
                 .lineLimit(1...7)
                 .textFieldStyle(.plain)
                 .font(.body)
                 .multilineTextAlignment(.leading)
                 .focused($isInputFocused)
                 .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                .remoteInputPrompt("Send a Message...", isEmpty: message.isEmpty)
                 .submitLabel(.send)
                 .onSubmit(send)
                 .disabled(!model.canControlChat || policy.primaryOperation == nil)
@@ -1418,7 +1417,7 @@ struct RemoteChatComposer: View {
                     } label: {
                         Image(systemName: "stop.fill")
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.remoteFailure)
                             .frame(width: 30, height: Self.buttonHeight)
                     }
                     .buttonStyle(.plain)
@@ -1431,7 +1430,7 @@ struct RemoteChatComposer: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(canSend ? Color.black : Color.secondary)
                         .frame(width: Self.buttonHeight, height: Self.buttonHeight)
-                        .background(canSend ? Color.remoteWarmOrange : Color.primary.opacity(0.09), in: Circle())
+                        .background(canSend ? Color.remoteOrangeFill : Color.primary.opacity(0.09), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)

@@ -41,17 +41,19 @@ struct RemoteInteractionCard: View {
                         .buttonStyle(.borderedProminent)
                 }
             } else {
+                let responseLabel: LocalizedStringKey = isSecure ? "Secure response" : "Response"
                 Group {
                     if isSecure {
-                        SecureField("Secure response", text: $response)
+                        SecureField(responseLabel, text: $response, prompt: Text(""))
                             .privacySensitive()
                             .accessibilityHint("The value is sent once and is not stored in the app transcript.")
                     } else {
-                        TextField("Response", text: $response, axis: .vertical)
+                        TextField(responseLabel, text: $response, prompt: Text(""), axis: .vertical)
                             .lineLimit(1...5)
                     }
                 }
                 .textFieldStyle(.roundedBorder)
+                .remoteInputPrompt(responseLabel, isEmpty: response.isEmpty, leadingPadding: 8)
 
                 HStack {
                     if isSecure {
