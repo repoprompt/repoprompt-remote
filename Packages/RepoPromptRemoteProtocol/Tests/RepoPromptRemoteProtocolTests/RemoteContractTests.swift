@@ -74,6 +74,21 @@ final class RemoteContractTests: XCTestCase {
         XCTAssertFalse(multiple.accepts(.init(skipped: true)))
     }
 
+    func testStartRunRoundTripsInterviewOptInWithWorkflowAndModel() throws {
+        let request = RemoteCommandRequest(
+            operation: .startRun, message: "Draft a plan", agentID: "codexExec",
+            modelID: "test-model", reasoningEffort: "high", workflowID: "plan",
+            interviewFirst: true
+        )
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(RemoteCommandRequest.self, from: encoder.encode(request)), request)
+
+        let standardStart = RemoteCommandRequest(operation: .startRun, message: "Draft a plan")
+        let standardData = try encoder.encode(standardStart)
+        XCTAssertNil(try decoder.decode(RemoteCommandRequest.self, from: standardData).interviewFirst)
+    }
+
     func testProtocolCompatibilityAcceptsCurrentVersionOnly() {
         XCTAssertEqual(RemoteProtocol.minimumSupportedVersion, 1)
         XCTAssertEqual(RemoteProtocol.currentVersion, 1)

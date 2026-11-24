@@ -579,6 +579,7 @@ final class RemoteAppModel: ObservableObject {
         agentID: String? = nil,
         modelID: String? = nil,
         reasoningEffort: String? = nil,
+        interviewFirst: Bool = false,
         attachments: [RemoteDraftAttachment] = []
     ) -> UUID {
         let request = RemoteCommandRequest(
@@ -589,6 +590,7 @@ final class RemoteAppModel: ObservableObject {
             modelID: modelID?.isEmpty == true ? nil : modelID,
             reasoningEffort: reasoningEffort?.isEmpty == true ? nil : reasoningEffort,
             workflowID: workflowID?.isEmpty == true ? nil : workflowID,
+            interviewFirst: interviewFirst ? true : nil,
             attachmentIDs: attachments.isEmpty ? nil : attachments.map(\.id)
         )
         return sendCommand(request, attachments: attachments)
