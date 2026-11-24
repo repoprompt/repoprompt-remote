@@ -371,7 +371,7 @@ struct RemoteChatView: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Retry") { model.loadTranscript(for: sessionID) }
+                    Button("Retry") { model.retryTranscript(for: sessionID) }
                 }
             } else {
                 ContentUnavailableView(

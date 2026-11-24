@@ -72,7 +72,7 @@ struct RemoteMobileShell: View {
                             historyPhase: history?.phase,
                             hasChats: !chats.isEmpty,
                             onShowChats: openDrawer,
-                            onRetry: model.refreshChatList,
+                            onRetry: model.retryChatList,
                             onNewSession: openWorkflowLaunch
                         )
                     }
@@ -255,11 +255,21 @@ struct RemoteMobileShell: View {
         if model.connectionState == .disconnected || model.transientError != nil {
             VStack(spacing: 8) {
                 if model.connectionState == .disconnected {
-                    Label("Reconnecting to your Mac…", systemImage: "wifi.exclamationmark")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.remoteWarmOrange, in: Capsule())
+                    VStack(spacing: 5) {
+                        Label(model.pairingProgress ?? model.connectionStatusLabel, systemImage: "wifi.exclamationmark")
+                            .font(.footnote.weight(.semibold))
+                        if let issue = model.connectionIssue {
+                            Text(issue).font(.caption).multilineTextAlignment(.center)
+                        }
+                        if model.snapshot != nil {
+                            Text("Showing the last sync").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if model.connectionIssue != nil || !model.isRecovering {
+                            Button("Reconnect") { model.retryConnection() }
+                                .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(8)
                 }
                 if let error = model.transientError { RemoteErrorBanner(message: error) }
             }
@@ -414,7 +424,7 @@ private struct RemoteNavigationDrawer: View {
                     .padding(8)
             }
         case .failed?:
-            Button("Retry loading saved chats", action: model.refreshChatList)
+            Button("Retry loading saved chats", action: model.retryChatList)
                 .font(.footnote)
                 .padding(8)
         case .limited?:
@@ -466,7 +476,7 @@ private struct RemoteNavigationDrawer: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.snapshot?.desktop.displayName ?? "Paired Mac")
                         .font(.footnote.weight(.semibold)).lineLimit(1)
-                    Text(model.connectionState == .connected ? "Connected" : "Reconnecting…")
+                    Text(model.connectionStatusLabel)
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }

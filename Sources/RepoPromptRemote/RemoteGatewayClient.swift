@@ -76,6 +76,17 @@ protocol RemoteGatewayTransport: AnyObject {
     func close()
 }
 
+protocol RemoteConnectionCandidate: RemoteGatewayTransport {
+    var refreshedServerAddress: RemoteIrohEndpointAddress? { get }
+    func confirmPairing(attemptID: UUID) async throws
+    func authenticate() async throws
+    func firstSnapshot() async throws -> RemoteSnapshot
+}
+
+extension RemoteConnectionCandidate {
+    var refreshedServerAddress: RemoteIrohEndpointAddress? { nil }
+}
+
 extension RemoteGatewayTransport {
     var irohPath: RemoteIrohPathKind? { nil }
     func close() {}

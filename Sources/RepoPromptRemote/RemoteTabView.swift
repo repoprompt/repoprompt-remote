@@ -46,8 +46,11 @@ struct PermissionsView: View {
                     Section("Pairing") {
                         LabeledContent(
                             "Status",
-                            value: model.connectionState == .connected ? "Connected" : "Reconnecting"
+                            value: model.connectionStatusLabel
                         )
+                        if model.connectionState != .connected {
+                            Button("Reconnect") { model.retryConnection() }
+                        }
                         Button("Unpair", role: .destructive) { model.unpair() }
                     }
 

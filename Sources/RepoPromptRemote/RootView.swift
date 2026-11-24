@@ -23,6 +23,7 @@ struct RootView: View {
 
 struct PairingView: View {
     @EnvironmentObject private var model: RemoteAppModel
+    @State private var showingResetConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -52,18 +53,61 @@ struct PairingView: View {
                 .padding()
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
 
-                Button {
-                    model.beginPairing()
-                } label: {
-                    Label("Pair with Mac", systemImage: "qrcode.viewfinder")
-                        .frame(maxWidth: .infinity)
+                if let issue = model.connectionIssue {
+                    RemoteErrorBanner(message: issue)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+
+                if model.pairingStorageUnavailable {
+                    Button("Retry Keychain") { model.retryConnection() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Reset local pairing", role: .destructive) { showingResetConfirmation = true }
+                } else if model.hasPendingPairing {
+                    VStack(spacing: 10) {
+                        if let progress = model.pairingProgress {
+                            ProgressView(progress)
+                        } else if model.isRecovering {
+                            ProgressView("Retrying pairing…")
+                        }
+                        if model.connectionIssue != nil {
+                            Button("Retry pairing") { model.retryConnection() }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        if model.canCancelPendingPairing {
+                            Button("Scan another code") {
+                                model.cancelPendingPairing()
+                                model.beginPairing()
+                            }
+                        } else if model.connectionIssue != nil, model.canResetPendingConfirmation {
+                            Button("Reset local pairing", role: .destructive) {
+                                showingResetConfirmation = true
+                            }
+                        }
+                    }
+                } else {
+                    Button {
+                        model.beginPairing()
+                    } label: {
+                        Label("Pair with Mac", systemImage: "qrcode.viewfinder")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
 
                 Spacer()
             }
             .padding(24)
+            .confirmationDialog("Reset pairing on this phone?", isPresented: $showingResetConfirmation) {
+                Button("Reset local pairing", role: .destructive) {
+                    if model.pairingStorageUnavailable {
+                        model.resetPairingStorage()
+                    } else {
+                        model.resetPendingConfirmation()
+                    }
+                }
+            } message: {
+                Text("Check Mac Settings first. If the Mac already lists this phone as paired, unpair it there before generating another code.")
+            }
         }
     }
 }
@@ -102,6 +146,7 @@ private struct PairingScannerScreen: View {
                     onCode: { model.handleQRCode($0) },
                     onFailure: { model.presentError($0) }
                 )
+                .id(model.scannerGeneration)
                 .ignoresSafeArea()
 
                 VStack(spacing: 8) {

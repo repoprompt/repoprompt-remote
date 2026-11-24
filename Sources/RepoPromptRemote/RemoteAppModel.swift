@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import Network
 import OSLog
+import RepoPromptIrohTransport
 import RepoPromptRemoteProtocol
 import UIKit
 
@@ -194,6 +195,12 @@ final class RemoteAppModel: ObservableObject {
     @Published private(set) var diagnostics: RemoteDiagnostics?
     @Published private(set) var notificationStatus: String = "Not configured"
     @Published private(set) var pendingSessionID: UUID?
+    @Published private(set) var connectionIssue: String?
+    @Published private(set) var pairingProgress: String?
+    @Published private(set) var isRecovering = false
+    @Published private(set) var pairingStorageUnavailable = false
+    @Published private(set) var scannerGeneration = 0
+    @Published private var pairingRecord: StoredRemotePairing?
     @Published private(set) var networkStatus: String = "Unknown"
     @Published private(set) var lastConnectionEvent: String = "Not connected"
     @Published private(set) var transportStatus: String = "None"
@@ -202,11 +209,34 @@ final class RemoteAppModel: ObservableObject {
         didSet { UserDefaults.standard.set(notificationRelayURL, forKey: Self.notificationRelayURLKey) }
     }
 
+    struct ConnectionFactory {
+        let prepare: (StoredRemotePairingAttempt, Data, UInt64, String) async throws
+            -> (StoredRemoteCredential, any RemoteConnectionCandidate)
+        let open: (StoredRemoteCredential, Data, UInt64) async throws -> any RemoteConnectionCandidate
+
+        static var live: Self {
+            Self(
+                prepare: { attempt, secret, generation, name in
+                    try await RemoteIrohGatewayTransport.preparePairing(
+                        attempt: attempt, identitySecret: secret, generation: generation, deviceName: name
+                    )
+                },
+                open: { stored, secret, generation in
+                    try await RemoteIrohGatewayTransport.open(
+                        stored: stored, identitySecret: secret, generation: generation
+                    )
+                }
+            )
+        }
+    }
+
     private static let notificationRelayURLKey = "RepoPromptRemote.notificationRelayURL"
+    private static let connectionLogger = Logger(subsystem: "com.repoprompt.remote", category: "Connection")
     private static let unpairLogger = Logger(subsystem: "com.repoprompt.remote", category: "Unpair")
-    private static let unpairDeadline: Duration = .milliseconds(1_500)
-    private let credentialStore = RemoteCredentialStore()
-    private let irohIdentityStore = RemoteIrohIdentityStore()
+    private static let unpairDeadline: Duration = .seconds(5)
+    private let credentialStore: any RemoteCredentialStoring
+    private let irohIdentityStore: RemoteIrohIdentityStore
+    private let connectionFactory: ConnectionFactory
     private var activeImageReads = 0
     private var waitingImageReads: [(UUID, CheckedContinuation<Void, Error>)] = []
     private let imageThumbnails: NSCache<NSString, NSData> = {
@@ -215,13 +245,14 @@ final class RemoteAppModel: ObservableObject {
         return cache
     }()
     private var gateway: (any RemoteGatewayTransport)?
-    private var storedCredential: StoredRemoteCredential?
+    private var storedCredential: StoredRemoteCredential? {
+        if case let .paired(credential) = pairingRecord { return credential }
+        return nil
+    }
     private var reducer = RemoteSnapshotReducer()
-    private var eventTask: Task<Void, Never>?
+    private var connectionTask: Task<Void, Never>?
     private var chatListTask: Task<Void, Never>?
     private var selectedHistoryWorkspaceID: String?
-    private var pairingTask: Task<Void, Never>?
-    private var pairingAttemptID: UUID?
     private var unpairWork: RemoteUnpairWork?
     private var unpairWorkID: UUID?
     private var transcriptInitialTasks: [UUID: Task<Void, Never>] = [:]
@@ -240,8 +271,18 @@ final class RemoteAppModel: ObservableObject {
     private var irohGeneration: UInt64 = 0
     private var isSceneActive = true
     private var lastSatisfiedInterface: String?
+    private var networkAvailable = true
+    private var automaticRecoveryPaused = false
 
-    init() {
+    init(
+        credentialStore: any RemoteCredentialStoring = RemoteCredentialStore(),
+        irohIdentityStore: RemoteIrohIdentityStore = RemoteIrohIdentityStore(),
+        connectionFactory: ConnectionFactory = .live,
+        monitorNetwork: Bool = true
+    ) {
+        self.credentialStore = credentialStore
+        self.irohIdentityStore = irohIdentityStore
+        self.connectionFactory = connectionFactory
         notificationRelayURL = UserDefaults.standard.string(forKey: Self.notificationRelayURLKey) ?? ""
         notificationObservers = [
             NotificationCenter.default.addObserver(
@@ -273,62 +314,75 @@ final class RemoteAppModel: ObservableObject {
                 }
             }
         ]
+        if monitorNetwork {
+            startNetworkMonitoring()
+        }
+        restorePairing()
+    }
+
+    private func startNetworkMonitoring() {
         networkMonitor = RemoteNetworkMonitor { [weak self] status, interface in
             guard let self else { return }
             switch status {
             case .satisfied:
-                let pathChanged = self.lastSatisfiedInterface != nil && self.lastSatisfiedInterface != interface
-                self.lastSatisfiedInterface = interface
-                self.networkStatus = "Online (\(interface))"
-                if self.isSceneActive, pathChanged, self.connectionState == .connected,
-                   let stored = self.storedCredential
-                {
-                    self.activeConnectionAttemptID = nil
-                    self.eventTask?.cancel()
-                    self.eventTask = nil
-                    self.endConnectionCycle()
-                    self.connectionState = .disconnected
-                    self.lastConnectionEvent = "Network path changed; reconnecting"
-                    Task { await self.connect(using: stored) }
-                } else if self.isSceneActive, self.connectionState == .disconnected,
-                          let stored = self.storedCredential
-                {
-                    Task { await self.connect(using: stored) }
+                let pathChanged = lastSatisfiedInterface.map { $0 != interface } ?? false
+                let wasOffline = !networkAvailable
+                lastSatisfiedInterface = interface
+                networkAvailable = true
+                networkStatus = "Online (\(interface))"
+                // QUIC can migrate a healthy connection. A dial already in progress needs fresh routes.
+                if (pathChanged || wasOffline), connectionState != .connected {
+                    stopConnection()
                 }
+                startConnectionRecovery()
             case .unsatisfied:
-                self.networkStatus = "Offline"
-                self.lastConnectionEvent = "Network unavailable"
-                if self.storedCredential != nil {
-                    self.endConnectionCycle()
-                    self.connectionState = .disconnected
+                networkAvailable = false
+                networkStatus = "Offline"
+                stopConnection()
+                if pairingRecord != nil {
+                    connectionIssue = "Network unavailable. Retrying when the phone is back online."
+                    lastConnectionEvent = "Network unavailable"
                 }
             case .requiresConnection:
-                self.networkStatus = "Connection required"
+                networkAvailable = true
+                networkStatus = "Connection required"
+                startConnectionRecovery()
             @unknown default:
-                self.networkStatus = "Unknown"
+                networkStatus = "Unknown"
             }
         }
         networkMonitor?.start()
-        Task { [weak self] in
-            await self?.restorePairing()
-        }
     }
 
     deinit {
-        eventTask?.cancel()
+        connectionTask?.cancel()
         chatListTask?.cancel()
         transcriptInitialTasks.values.forEach { $0.cancel() }
         transcriptLatestTasks.values.forEach { $0.cancel() }
         transcriptOlderTasks.values.forEach { $0.cancel() }
         transcriptDetailTasks.values.forEach { $0.cancel() }
-        pairingTask?.cancel()
         networkMonitor?.stop()
         transientErrorTask?.cancel()
         notificationObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
-    var isPaired: Bool {
-        storedCredential != nil
+    var isPaired: Bool { storedCredential != nil }
+
+    var hasPendingPairing: Bool { pairingRecord != nil && !isPaired }
+
+    var canCancelPendingPairing: Bool {
+        if case .preparing = pairingRecord { return true }
+        return false
+    }
+
+    var canResetPendingConfirmation: Bool {
+        if case .confirming = pairingRecord { return true }
+        return false
+    }
+
+    var connectionStatusLabel: String {
+        if connectionState == .connected { return "Connected" }
+        return isRecovering ? "Reconnecting…" : "Paired · Offline"
     }
 
     var isCommandInFlight: Bool {
@@ -420,6 +474,7 @@ final class RemoteAppModel: ObservableObject {
     }
 
     func beginPairing() {
+        guard pairingRecord == nil, !pairingStorageUnavailable else { return }
         unpairWork?.cancel()
         unpairWork = nil
         unpairWorkID = nil
@@ -429,50 +484,87 @@ final class RemoteAppModel: ObservableObject {
     }
 
     func handleQRCode(_ value: String) {
-        guard pairingTask == nil else { return }
+        guard pairingRecord == nil, !pairingStorageUnavailable else { return }
         do {
             let advertisement = try RemotePairingDecoder.decode(value)
+            guard advertisement.requiresPairingConfirmation == true else {
+                throw RemoteIrohTransportError.confirmationUnavailable
+            }
+            let identity = try irohIdentityStore.loadOrCreate()
+            let endpointID = try RemoteIrohGatewayTransport.endpointID(for: identity.secret)
+            try savePairing(.preparing(.init(id: UUID(), advertisement: advertisement, localEndpointID: endpointID)))
+            showingPairing = false
             clearTransientError()
-            startPairing(advertisement)
+            retryConnection()
         } catch {
+            scannerGeneration &+= 1
             presentError(error.localizedDescription)
         }
     }
 
     func cancelPairing() {
         showingPairing = false
-        pairingTask?.cancel()
-        pairingTask = nil
-        pairingAttemptID = nil
-        if storedCredential == nil { connectionState = .unpaired }
+        if pairingRecord == nil { connectionState = .unpaired }
+    }
+
+    func cancelPendingPairing() {
+        guard canCancelPendingPairing else { return }
+        stopConnection()
+        clearLocalPairing(message: "Generate a new pairing code on your Mac, then scan it here.")
+    }
+
+    func resetPendingConfirmation() {
+        guard canResetPendingConfirmation else { return }
+        stopConnection()
+        clearLocalPairing(message: "Check the phone in Mac Settings. Cancel a pending attempt or unpair this phone there, then generate a new code.")
+    }
+
+    func resetPairingStorage() {
+        guard pairingStorageUnavailable else { return }
+        stopConnection()
+        clearLocalPairing(message: "Check the phone in Mac Settings. Unpair it there if it still appears, then generate a new code.")
+    }
+
+    func retryConnection() {
+        automaticRecoveryPaused = false
+        if pairingStorageUnavailable {
+            restorePairing()
+            return
+        }
+        guard connectionState != .connected else { return }
+        guard networkAvailable else {
+            connectionIssue = "Network unavailable. Retrying when the phone is back online."
+            return
+        }
+        if isRecovering { stopConnection() }
+        startConnectionRecovery()
     }
 
     func setSceneActive(_ active: Bool) {
+        guard isSceneActive != active else { return }
         isSceneActive = active
         if active {
-            if connectionState == .disconnected, let storedCredential {
-                Task { await connect(using: storedCredential) }
-            }
+            startConnectionRecovery()
         } else {
-            pairingTask?.cancel()
-            pairingTask = nil
-            pairingAttemptID = nil
-            activeConnectionAttemptID = nil
-            eventTask?.cancel()
-            eventTask = nil
-            cancelAllTranscriptTasks()
-            endConnectionCycle()
-            if storedCredential != nil { connectionState = .disconnected }
+            stopConnection()
         }
     }
 
     func disconnect() {
+        automaticRecoveryPaused = true
+        stopConnection()
+        if isPaired { connectionIssue = "Disconnected. Tap Reconnect when you’re ready." }
+    }
+
+    private func stopConnection() {
         activeConnectionAttemptID = nil
-        eventTask?.cancel()
-        eventTask = nil
+        connectionTask?.cancel()
+        connectionTask = nil
+        isRecovering = false
+        pairingProgress = nil
         cancelAllTranscriptTasks()
         endConnectionCycle()
-        connectionState = storedCredential == nil ? .unpaired : .disconnected
+        if pairingRecord != nil { connectionState = isPaired ? .disconnected : .discovering }
     }
 
     @discardableResult
@@ -624,8 +716,10 @@ final class RemoteAppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                guard let gateway else { throw RemotePairingError.unavailableDesktop }
-                diagnostics = try await gateway.diagnostics()
+                guard let gateway else { return }
+                let result = try await gateway.diagnostics()
+                guard !Task.isCancelled, self.gateway === gateway else { return }
+                diagnostics = result
                 if let diagnostics {
                     notificationStatus = diagnostics.notificationRegistration
                         ? (diagnostics.notificationRelayConfigured ? "Configured" : "Registered; relay URL missing")
@@ -691,10 +785,10 @@ final class RemoteAppModel: ObservableObject {
 
     func refreshRemoteState() {
         clearTransientError()
+        guard gateway != nil else { retryConnection(); return }
         Task { [weak self] in
             guard let self else { return }
             do {
-                guard gateway != nil else { throw RemotePairingError.unavailableDesktop }
                 try await refreshSnapshot()
                 refreshChatList()
             } catch {
@@ -712,8 +806,14 @@ final class RemoteAppModel: ObservableObject {
         refreshChatList()
     }
 
+    func retryChatList() {
+        guard gateway != nil else { retryConnection(); return }
+        refreshChatList()
+    }
+
     func refreshChatList() {
-        guard let gateway, let selection = selectedHistoryWorkspaceID,
+        guard let gateway else { startConnectionRecovery(); return }
+        guard let selection = selectedHistoryWorkspaceID,
               let workspaceID = UUID(uuidString: selection)
         else { return }
         chatListTask?.cancel()
@@ -734,16 +834,21 @@ final class RemoteAppModel: ObservableObject {
         }
     }
 
+    func retryTranscript(for sessionID: UUID) {
+        guard gateway != nil else { retryConnection(); return }
+        loadTranscript(for: sessionID)
+    }
+
     func loadTranscript(for sessionID: UUID) {
+        guard let gateway else { startConnectionRecovery(); return }
         acknowledgeSession(sessionID)
         cancelTranscriptMutationTasks(for: sessionID)
         let generation = beginTranscriptLoad(.initial, for: sessionID)
         transcriptInitialTasks[sessionID] = Task { [weak self] in
             guard let self else { return }
             do {
-                guard let gateway else { throw RemotePairingError.unavailableDesktop }
                 let page = try await gateway.recentTranscript(sessionID: sessionID)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.gateway === gateway else { return }
                 applyTranscriptPage(page, kind: .initial, generation: generation, for: sessionID)
             } catch {
                 guard !isExpectedCancellation(error) else { return }
@@ -1138,12 +1243,9 @@ final class RemoteAppModel: ObservableObject {
         guard let storedCredential else { return }
 
         unpairWork?.cancel()
-        activeConnectionAttemptID = nil
-        eventTask?.cancel()
-        eventTask = nil
-        cancelAllTranscriptTasks()
         let preferredGateway = gateway
         gateway = nil
+        stopConnection()
         let attempts = makeUnpairAttempts(
             stored: storedCredential,
             preferredGateway: preferredGateway
@@ -1169,6 +1271,15 @@ final class RemoteAppModel: ObservableObject {
                 guard self?.unpairWorkID == workID else { return }
                 self?.unpairWorkID = nil
                 self?.unpairWork = nil
+                guard self?.pairingRecord == nil else { return }
+                switch outcome {
+                case .revoked, .alreadyRevoked:
+                    self?.connectionIssue = nil
+                case .cancelled:
+                    break
+                case .noTransport, .failed, .timedOut:
+                    self?.connectionIssue = "Pairing was removed from this phone. If the Mac still lists it, choose Unpair phone in Mac Settings before pairing again."
+                }
             }
         )
     }
@@ -1213,25 +1324,24 @@ final class RemoteAppModel: ObservableObject {
         )]
     }
 
-    private func clearLocalPairing() {
-        var keychainFailureCount = 0
+    private func clearLocalPairing(message: String = "Removing pairing from the Mac…") {
         do {
             try credentialStore.delete()
         } catch {
-            keychainFailureCount += 1
+            automaticRecoveryPaused = true
+            connectionIssue = "The phone could not remove pairing from Keychain. Unlock the phone and try again."
+            return
         }
         do {
             try irohIdentityStore.delete()
         } catch {
-            keychainFailureCount += 1
-        }
-        if keychainFailureCount == 0 {
-            Self.unpairLogger.info("Phone credential and mobile Iroh identity deleted")
-        } else {
-            Self.unpairLogger.error("Local Unpair completed with \(keychainFailureCount, privacy: .public) Keychain deletion failure(s)")
+            Self.unpairLogger.error("Phone Iroh identity cleanup failed")
         }
 
-        storedCredential = nil
+        pairingRecord = nil
+        pairingStorageUnavailable = false
+        automaticRecoveryPaused = false
+        authority = .observe
         reducer = RemoteSnapshotReducer()
         snapshot = nil
         chatListTask?.cancel()
@@ -1259,175 +1369,267 @@ final class RemoteAppModel: ObservableObject {
         transportStatus = "None"
         irohPathStatus = "Unknown"
         lastConnectionEvent = "Unpaired"
+        connectionIssue = message
         showingPairing = false
         connectionState = .unpaired
         clearTransientError()
     }
 
-    private func restorePairing() async {
+    private func restorePairing() {
         do {
-            guard let stored = try credentialStore.load() else { return }
-            storedCredential = stored
-            connectionState = .disconnected
-            await connect(using: stored)
+            pairingRecord = try credentialStore.load()
+            pairingStorageUnavailable = false
+            connectionIssue = nil
+            connectionState = isPaired ? .disconnected : (hasPendingPairing ? .discovering : .unpaired)
+            startConnectionRecovery()
         } catch {
-            storedCredential = nil
-            connectionState = .unpaired
+            pairingStorageUnavailable = true
+            connectionIssue = error.localizedDescription
         }
     }
 
-    private func startPairing(_ advertisement: RemoteIrohPairingAdvertisement) {
-        guard pairingTask == nil else { return }
-        let attemptID = UUID()
-        pairingAttemptID = attemptID
-        pairingTask = Task { [weak self] in
-            guard let self else { return }
-            await self.pair(advertisement, attemptID: attemptID)
-            guard self.pairingAttemptID == attemptID else { return }
-            self.pairingAttemptID = nil
-            self.pairingTask = nil
-        }
+    private func savePairing(_ record: StoredRemotePairing) throws {
+        try credentialStore.save(record)
+        pairingRecord = record
     }
 
-    private func pair(
-        _ advertisement: RemoteIrohPairingAdvertisement,
-        attemptID: UUID
-    ) async {
-        guard pairingAttemptID == attemptID else { return }
-        connectionState = .discovering
-        var candidateTransport: RemoteIrohGatewayTransport?
-        do {
-            let identity = try irohIdentityStore.loadOrCreate()
-            irohGeneration &+= 1
-            let (response, transport) = try await RemoteIrohGatewayTransport.pair(
-                advertisement: advertisement,
-                identitySecret: identity.secret,
-                generation: irohGeneration,
-                deviceName: UIDevice.current.name
-            )
-            candidateTransport = transport
-            try Task.checkCancellation()
-            guard pairingAttemptID == attemptID, isSceneActive else {
-                transport.close()
-                return
-            }
-            let stored = StoredRemoteCredential(
-                desktopInstanceID: advertisement.desktopInstanceID,
-                deviceID: response.pairingResponse.deviceID,
-                credential: response.pairingResponse.credential,
-                irohBinding: StoredRemoteIrohBinding(
-                    expectedDesktopEndpointID: response.serverEndpointID,
-                    localMobileEndpointID: response.clientEndpointID,
-                    serverAddress: advertisement.server
-                )
-            )
-            try credentialStore.save(stored)
-            storedCredential = stored
-            try await refreshSnapshot(using: transport)
-            guard pairingAttemptID == attemptID, isSceneActive else {
-                transport.close()
-                return
-            }
-            gateway = transport
-            candidateTransport = nil
-            refreshChatList()
-            showingPairing = false
-            connectionState = .connected
-            transportStatus = "Iroh"
-            irohPathStatus = transport.irohPath?.rawValue ?? "unknown"
-            lastConnectionEvent = "Connected to Mac with Iroh"
-            startEventStream()
-            refreshDiagnostics()
-            registerPendingNotificationIfPossible()
-        } catch {
-            candidateTransport?.close()
-            guard !isExpectedCancellation(error), pairingAttemptID == attemptID, isSceneActive else { return }
-            connectionState = storedCredential == nil ? .unpaired : .disconnected
-            lastConnectionEvent = connectionEvent(for: error)
-            presentError(error.localizedDescription)
-        }
-    }
-
-    private func connect(using stored: StoredRemoteCredential) async {
-        guard isSceneActive,
-              connectionState != .connected,
-              activeConnectionAttemptID == nil,
-              storedCredential == stored
+    private func startConnectionRecovery() {
+        guard connectionTask == nil, isSceneActive, networkAvailable,
+              pairingRecord != nil, !automaticRecoveryPaused, !pairingStorageUnavailable
         else { return }
+        let generation = UUID()
+        activeConnectionAttemptID = generation
+        isRecovering = true
+        connectionTask = Task { [weak self] in
+            await self?.superviseConnection(generation: generation)
+        }
+    }
 
-        let attemptID = UUID()
-        activeConnectionAttemptID = attemptID
+    private func checkConnectionGeneration(_ generation: UUID) throws {
+        try Task.checkCancellation()
+        guard activeConnectionAttemptID == generation, isSceneActive, networkAvailable else {
+            throw CancellationError()
+        }
+    }
+
+    private func superviseConnection(generation: UUID) async {
         defer {
-            if activeConnectionAttemptID == attemptID { activeConnectionAttemptID = nil }
+            if activeConnectionAttemptID == generation {
+                activeConnectionAttemptID = nil
+                connectionTask = nil
+                isRecovering = false
+                pairingProgress = nil
+            }
         }
 
-        var candidate: RemoteIrohGatewayTransport?
+        var consecutiveFailures = 0
+        while let pairingRecord, !Task.isCancelled {
+            do {
+                try checkConnectionGeneration(generation)
+                let (transport, firstSnapshot) = try await establishConnection(pairingRecord, generation: generation)
+                guard (try? checkConnectionGeneration(generation)) != nil else {
+                    transport.close()
+                    return
+                }
+                gateway = transport
+                applySnapshot(firstSnapshot)
+                consecutiveFailures = 0
+                isRecovering = false
+                pairingProgress = nil
+                connectionIssue = nil
+                connectionState = .connected
+                transportStatus = "Iroh"
+                irohPathStatus = transport.irohPath?.rawValue ?? "unknown"
+                lastConnectionEvent = "Connected to Mac with Iroh"
+                clearTransientError()
+                refreshChatList()
+                if let visibleSessionID { loadTranscript(for: visibleSessionID) }
+                refreshDiagnostics()
+                registerPendingNotificationIfPossible()
+                try await consumeEvents(using: transport, generation: generation)
+            } catch {
+                guard (try? checkConnectionGeneration(generation)) != nil else { return }
+                cancelAllTranscriptTasks()
+                endConnectionCycle()
+                pairingProgress = nil
+                connectionState = isPaired ? .disconnected : .discovering
+
+                if requiresNewPairing(error, duringPairing: hasPendingPairing) {
+                    let recovery = isPaired
+                        ? "If this phone still appears in Remote settings on your Mac, unpair it there before scanning a new code."
+                        : "Check Remote settings on your Mac for a pending or paired phone before generating a new code."
+                    clearLocalPairing(message: "\(error.localizedDescription) \(recovery)")
+                    lastConnectionEvent = "Pairing needs attention"
+                    return
+                }
+                connectionIssue = connectionMessage(for: error)
+                lastConnectionEvent = connectionIssue ?? "Connection interrupted"
+                if error is RemoteCredentialStoreError || isIncompatibleConnection(error) {
+                    automaticRecoveryPaused = true
+                    return
+                }
+                isRecovering = true
+                let seconds = pow(2.0, Double(min(consecutiveFailures, 4))) * Double.random(in: 0.8 ... 1.2)
+                consecutiveFailures = min(consecutiveFailures + 1, 4)
+                do {
+                    try await Task.sleep(for: .seconds(seconds))
+                } catch { return }
+            }
+        }
+    }
+
+    private func establishConnection(
+        _ record: StoredRemotePairing,
+        generation: UUID
+    ) async throws -> (any RemoteConnectionCandidate, RemoteSnapshot) {
+        let identity = try irohIdentityStore.loadOrCreate()
+        irohGeneration &+= 1
+        var candidate: (any RemoteConnectionCandidate)?
+        let attemptID: UUID? = switch record {
+        case let .preparing(attempt): attempt.id
+        case let .confirming(_, id): id
+        case .paired: nil
+        }
+        let start = ContinuousClock.now
+        var stage = "dial"
         do {
-            let identity = try irohIdentityStore.loadOrCreate()
-            irohGeneration &+= 1
-            let transport = try await RemoteIrohGatewayTransport.connect(
-                stored: stored,
-                identitySecret: identity.secret,
-                generation: irohGeneration
-            )
-            candidate = transport
-            guard activeConnectionAttemptID == attemptID, isSceneActive else {
-                transport.close()
-                return
+            let transport: any RemoteConnectionCandidate
+            let stored: StoredRemoteCredential
+            switch record {
+            case let .preparing(attempt):
+                // A Mac can hold an attempt for five minutes after a prepare accepted just before QR expiry.
+                guard Date() < attempt.advertisement.expiresAt.addingTimeInterval(RemoteWireProtocol.pairingAttemptLifetime) else {
+                    throw RemotePairingError.expiredQRCode
+                }
+                pairingProgress = "Contacting your Mac…"
+                let prepared = try await connectionFactory.prepare(
+                    attempt, identity.secret, irohGeneration, UIDevice.current.name
+                )
+                stored = prepared.0
+                transport = prepared.1
+                candidate = transport
+                try checkConnectionGeneration(generation)
+                stage = "save_credential"
+                pairingProgress = "Saving pairing…"
+                try savePairing(.confirming(stored, attemptID: attempt.id))
+            case let .confirming(credential, _), let .paired(credential):
+                stored = credential
+                pairingProgress = hasPendingPairing ? "Contacting your Mac…" : nil
+                transport = try await connectionFactory.open(credential, identity.secret, irohGeneration)
+                candidate = transport
             }
-            try await refreshSnapshot(using: transport, expectedConnectionAttemptID: attemptID)
-            guard activeConnectionAttemptID == attemptID, isSceneActive else {
-                transport.close()
-                return
+            try checkConnectionGeneration(generation)
+            if let attemptID {
+                stage = "confirm_pairing"
+                pairingProgress = "Confirming pairing with your Mac…"
+                try await transport.confirmPairing(attemptID: attemptID)
+                try checkConnectionGeneration(generation)
+                stage = "save_confirmation"
+                try savePairing(.paired(stored))
+                connectionState = .disconnected
+                showingPairing = false
             }
-            gateway = transport
-            refreshChatList()
-            connectionState = .connected
-            transportStatus = "Iroh"
-            irohPathStatus = transport.irohPath?.rawValue ?? "unknown"
-            lastConnectionEvent = "Reconnected to Mac with Iroh"
-            clearTransientError()
-            startEventStream()
-            refreshDiagnostics()
-            registerPendingNotificationIfPossible()
+
+            stage = "authenticate"
+            try await transport.authenticate()
+            try checkConnectionGeneration(generation)
+            stage = "first_sync"
+            pairingProgress = "Loading chats…"
+            let newSnapshot = try await transport.firstSnapshot()
+            try checkConnectionGeneration(generation)
+            updateServerAddress(transport.refreshedServerAddress, for: stored)
+            Self.connectionLogger.info("Remote ready after \(String(describing: start.duration(to: .now)), privacy: .public)")
+            return (transport, newSnapshot)
         } catch {
             candidate?.close()
-            guard activeConnectionAttemptID == attemptID, isSceneActive, !isExpectedCancellation(error) else { return }
-            switch error {
-            case RemoteGatewayError.credentialRejected, RemoteIrohTransportError.localIdentityChanged:
-                clearLocalPairing()
-                presentError(error.localizedDescription)
-            default:
-                endConnectionCycle()
-                connectionState = .disconnected
-                lastConnectionEvent = connectionEvent(for: error)
+            if !Task.isCancelled {
+                Self.connectionLogger.notice("Remote connection failed at \(stage, privacy: .public) after \(String(describing: start.duration(to: .now)), privacy: .public)")
             }
+            throw error
         }
     }
 
-    private func refreshSnapshot(
-        using client: (any RemoteGatewayTransport)? = nil,
-        expectedConnectionAttemptID: UUID? = nil
-    ) async throws {
-        guard let client = client ?? gateway else { throw RemotePairingError.unavailableDesktop }
-        let newSnapshot = try await client.snapshot()
-        if let expectedConnectionAttemptID {
-            guard activeConnectionAttemptID == expectedConnectionAttemptID else {
-                throw CancellationError()
-            }
+    private func updateServerAddress(_ address: RemoteIrohEndpointAddress?, for stored: StoredRemoteCredential) {
+        let binding = stored.irohBinding
+        guard let address, address != binding.serverAddress else { return }
+        let updated = StoredRemoteCredential(
+            desktopInstanceID: stored.desktopInstanceID, deviceID: stored.deviceID, credential: stored.credential,
+            irohBinding: .init(
+                expectedDesktopEndpointID: binding.expectedDesktopEndpointID,
+                localMobileEndpointID: binding.localMobileEndpointID,
+                wireVersion: binding.wireVersion,
+                serverAddress: address
+            )
+        )
+        do {
+            try savePairing(.paired(updated))
+        } catch {
+            Self.connectionLogger.notice("Could not persist refreshed route hints")
         }
+    }
+
+    private func connectionMessage(for error: Error) -> String {
+        if case RemoteIrohIdentityStoreError.keychain = error {
+            return "Unlock this phone so Remote can access its pairing identity, then retry."
+        }
+        if error is TransportError || (error as? RemotePairingError) == .unavailableDesktop {
+            return "Couldn’t reach your Mac. Check that it’s awake and Remote is enabled."
+        }
+        return error.localizedDescription
+    }
+
+    private func requiresNewPairing(_ error: Error, duringPairing: Bool) -> Bool {
+        switch error {
+        case RemoteGatewayError.credentialRejected, RemoteIrohTransportError.localIdentityChanged,
+             RemotePairingError.expiredQRCode:
+            return true
+        case let RemoteGatewayError.requestRejected(response) where duringPairing:
+            return ["pairing_expired", "pairing_unavailable", "pairing_confirmation_rejected",
+                    "pairing_in_progress", "already_paired"].contains(response.code)
+        default:
+            return false
+        }
+    }
+
+    private func isIncompatibleConnection(_ error: Error) -> Bool {
+        switch error {
+        case RemoteIrohTransportError.bindingUnavailable, RemoteIrohTransportError.serverEndpointMismatch,
+             RemoteIrohTransportError.frameTooLarge, RemoteIrohTransportError.confirmationUnavailable,
+             RemoteGatewayError.protocolMismatch, RemoteWireContractError.unsupportedWireVersion,
+             RemoteIrohIdentityStoreError.keychain:
+            return true
+        case let RemoteGatewayError.requestRejected(response):
+            return response.code == "response_too_large"
+        default:
+            return false
+        }
+    }
+
+    private func refreshSnapshot() async throws {
+        guard let client = gateway else { throw RemotePairingError.unavailableDesktop }
+        let newSnapshot = try await client.snapshot()
+        try Task.checkCancellation()
+        guard gateway === client else { throw CancellationError() }
+        guard newSnapshot.desktop.instanceID == storedCredential?.desktopInstanceID else {
+            throw RemoteIrohTransportError.serverEndpointMismatch
+        }
+        if let current = snapshot, current.transcriptRevisionEpoch == newSnapshot.transcriptRevisionEpoch,
+           newSnapshot.eventCursor < reducer.cursor {
+            return
+        }
+        applySnapshot(newSnapshot)
+    }
+
+    private func applySnapshot(_ newSnapshot: RemoteSnapshot) {
         let previousSnapshot = snapshot
         let isRevisionEpochReset = RemoteTranscriptRevisionReconciliation.isEpochReset(
-            previous: previousSnapshot,
-            current: newSnapshot
+            previous: previousSnapshot, current: newSnapshot
         )
         reducer.replace(with: newSnapshot)
         snapshot = newSnapshot
         authority = Authority(newSnapshot.authorization.defaultLevel)
         reconcileSnapshot(
-            previous: previousSnapshot,
-            current: newSnapshot,
-            revisionEpochReset: isRevisionEpochReset
+            previous: previousSnapshot, current: newSnapshot, revisionEpochReset: isRevisionEpochReset
         )
         hasEstablishedSnapshot = true
     }
@@ -1563,8 +1765,8 @@ final class RemoteAppModel: ObservableObject {
         }
         if connectionState == .connected {
             refreshDiagnostics()
-        } else if let storedCredential {
-            Task { await connect(using: storedCredential) }
+        } else {
+            startConnectionRecovery()
         }
     }
 
@@ -1594,6 +1796,7 @@ final class RemoteAppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             defer { commandActivity.end(request.commandID) }
+            var dispatched = false
             do {
                 guard let gateway else { throw RemotePairingError.unavailableDesktop }
                 if !attachments.isEmpty {
@@ -1602,7 +1805,12 @@ final class RemoteAppModel: ObservableObject {
                     }
                     try await uploadAttachments(attachments, submissionID: request.commandID, gateway: gateway)
                 }
+                guard self.gateway === gateway else { throw RemotePairingError.unavailableDesktop }
+                dispatched = true
                 let response = try await gateway.command(request)
+                guard self.gateway === gateway else {
+                    throw RemotePairingError.unavailableDesktop
+                }
                 guard response.accepted else {
                     if request.operation == .configureSession || request.operation == .configureTools {
                         try? await refreshSnapshot()
@@ -1678,6 +1886,8 @@ final class RemoteAppModel: ObservableObject {
                     } else {
                         presentError(gatewayError.localizedDescription)
                     }
+                } else if dispatched {
+                    presentError("Couldn’t confirm the command’s outcome. Check the changes on your Mac before sending it again.")
                 } else {
                     presentError(error.localizedDescription)
                 }
@@ -1747,70 +1957,36 @@ final class RemoteAppModel: ObservableObject {
         handleTranscriptRevision(sessionID: sessionID, revision: revision)
     }
 
-    private func startEventStream() {
-        eventTask?.cancel()
-        eventTask = Task { [weak self] in
-            guard let self else { return }
-            eventLoop: while !Task.isCancelled {
-                do {
-                    guard let gateway = self.gateway else { return }
-                    self.irohPathStatus = gateway.irohPath?.rawValue ?? "unknown"
-                    let events = gateway.events(after: self.reducer.cursor)
-                    for try await event in events {
-                        guard !Task.isCancelled else { return }
-                        let previousSnapshot = self.snapshot
-                        switch self.reducer.apply(event) {
-                        case .applied:
-                            self.snapshot = self.reducer.snapshot
-                            if let currentSnapshot = self.snapshot {
-                                self.reconcileSnapshot(
-                                    previous: previousSnapshot,
-                                    current: currentSnapshot,
-                                    revisionEpochReset: false
-                                )
-                            }
-                            self.handleAppliedEvent(event)
-                        case .duplicate:
-                            self.snapshot = self.reducer.snapshot
-                        case .snapshotRequired:
-                            try await self.refreshSnapshot()
+    private func consumeEvents(
+        using transport: any RemoteGatewayTransport,
+        generation: UUID
+    ) async throws {
+        while !Task.isCancelled {
+            do {
+                for try await event in transport.events(after: reducer.cursor) {
+                    try checkConnectionGeneration(generation)
+                    let previousSnapshot = snapshot
+                    switch reducer.apply(event) {
+                    case .applied:
+                        snapshot = reducer.snapshot
+                        if let currentSnapshot = snapshot {
+                            reconcileSnapshot(previous: previousSnapshot, current: currentSnapshot, revisionEpochReset: false)
                         }
+                        handleAppliedEvent(event)
+                    case .duplicate:
+                        break
+                    case .snapshotRequired:
+                        throw RemoteGatewayError.snapshotRequired
                     }
-                    // The desktop currently serves /events as a short
-                    // replay and closes the response. Treat normal EOF as the
-                    // next long-poll cycle, not as a lost Mac.
-                    try await Task.sleep(nanoseconds: 500_000_000)
-                    continue eventLoop
-                } catch RemoteGatewayError.snapshotRequired {
-                    do {
-                        try await self.refreshSnapshot()
-                    } catch {
-                        guard !self.isExpectedCancellation(error) else { return }
-                        self.endConnectionCycle()
-                        self.connectionState = .disconnected
-                    }
-                } catch {
-                    guard !self.isExpectedCancellation(error) else { return }
-                    self.endConnectionCycle()
-                    self.connectionState = .disconnected
-                    self.lastConnectionEvent = self.connectionEvent(for: error)
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard !Task.isCancelled, let stored = self.storedCredential else { return }
-                    await self.connect(using: stored)
-                    if self.connectionState == .connected { return }
                 }
+                try checkConnectionGeneration(generation)
+                throw RemotePairingError.unavailableDesktop
+            } catch RemoteGatewayError.snapshotRequired {
+                try await refreshSnapshot()
+                if let visibleSessionID { loadTranscript(for: visibleSessionID) }
+                try await Task.sleep(for: .milliseconds(500))
             }
         }
-    }
-
-    private func connectionEvent(for error: Error) -> String {
-        if error is RemoteGatewayError {
-            switch error as? RemoteGatewayError {
-            case .credentialRejected?: return "Credential rejected; re-pair required"
-            default: return "Mac unavailable or restarted; retrying"
-            }
-        }
-        return "Connection failed; retrying"
     }
 
     private func isExpectedCancellation(_ error: Error) -> Bool {
