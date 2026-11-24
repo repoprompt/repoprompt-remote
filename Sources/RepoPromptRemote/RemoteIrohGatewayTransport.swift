@@ -396,13 +396,14 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
     }
 
     func authenticate() async throws {
+        let requestID = UUID()
         let request = try RemoteWireFrame(
             kind: .authenticatedHello,
-            messageID: UUID(),
+            messageID: requestID,
             encoding: authentication
         )
         let response = try await send(request)
-        try Self.validateAuthenticationResponse(response, requestID: request.messageID)
+        try Self.validateAuthenticationResponse(response, requestID: requestID)
         let accepted = try response.decodedPayload(
             as: RemoteHelloAccepted.self,
             expectedKind: .helloAccepted
@@ -424,7 +425,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         }
     }
 
-    static func validateAuthenticationResponse(_ response: RemoteWireFrame, requestID: UUID?) throws {
+    static func validateAuthenticationResponse(_ response: RemoteWireFrame, requestID: UUID) throws {
         if response.messageID == nil, response.kind == .streamError,
            case RemoteGatewayError.credentialRejected = remoteError(from: response)
         {

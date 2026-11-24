@@ -12,6 +12,25 @@ final class RemoteIrohFoundationTests: XCTestCase {
         XCTAssertEqual(model.transientError, RemotePairingError.invalidQRCode.errorDescription)
     }
 
+    func testAuthenticationRecognizesLegacyRevocationWithoutAcceptingUncorrelatedSuccess() throws {
+        let requestID = UUID()
+        let rejection = RemoteErrorResponse(code: "unauthorized", message: "The credential was revoked.")
+        let legacyFrame = try RemoteWireFrame(kind: .streamError, encoding: rejection)
+        XCTAssertThrowsError(try RemoteIrohGatewayTransport.validateAuthenticationResponse(legacyFrame, requestID: requestID)) { error in
+            guard case RemoteGatewayError.credentialRejected = error else {
+                return XCTFail("Expected a definitive credential rejection, got \(error)")
+            }
+        }
+
+        let wrongRequest = try RemoteWireFrame(kind: .streamError, messageID: UUID(), encoding: rejection)
+        let uncorrelatedSuccess = RemoteWireFrame(kind: .helloAccepted)
+        for frame in [wrongRequest, uncorrelatedSuccess] {
+            XCTAssertThrowsError(try RemoteIrohGatewayTransport.validateAuthenticationResponse(frame, requestID: requestID)) { error in
+                XCTAssertEqual(error as? RemoteIrohTransportError, .unexpectedFrame)
+            }
+        }
+    }
+
     func testPairingTelemetryClassifiesUntrustedPeerErrors() {
         let untrusted = RemoteGatewayError.requestRejected(.init(code: "untrusted-code", message: "untrusted-message"))
         XCTAssertEqual(RemotePairingTelemetry.failureReason(untrusted), "desktop_rejected_request")
