@@ -23,8 +23,8 @@ targets:
     info:
       path: Sources/RepoPromptRemote/Info.plist
       properties:
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "0.1.0"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSCameraUsageDescription: Scan a RepoPrompt pairing code shown on your Mac.
         NSLocalNetworkUsageDescription: Connect to RepoPrompt on your local network.
         RepoPromptSentryDSN: $(REPOPROMPT_SENTRY_DSN)
