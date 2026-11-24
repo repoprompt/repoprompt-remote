@@ -229,6 +229,13 @@ struct RemoteChatView: View {
             .onChange(of: runNoticeState) { _, _ in
                 followLatest(using: proxy)
             }
+            .onChange(of: session?.pendingInteraction?.id) { _, interactionID in
+                if interactionID != nil {
+                    if follow.receive(.newActivity) { followLatest(using: proxy) }
+                } else {
+                    followLatest(using: proxy)
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     Color.clear
