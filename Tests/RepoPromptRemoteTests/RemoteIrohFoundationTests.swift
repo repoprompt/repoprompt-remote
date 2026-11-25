@@ -207,10 +207,10 @@ final class RemoteIrohFoundationTests: XCTestCase {
         XCTAssertEqual(history.map(\.outcome), [.failed, .failed, .connected])
         XCTAssertEqual(history.map(\.reason), [.dialTimeout, .dialTimeout, nil])
         XCTAssertEqual(history.map(\.attempt), [1, 2, 3])
-        XCTAssertEqual(history.last?.stage, .firstSync)
+        XCTAssertEqual(history.last?.stage, .firstSnapshot)
         XCTAssertEqual(history.last?.savedRelayHint, true)
         XCTAssertGreaterThan(history.last?.recoveryMilliseconds ?? 0, history.last?.elapsedMilliseconds ?? 0)
-        XCTAssertEqual(history.last?.timings.map(\.stage), [.localIdentity, .endpointStartup, .dial, .authenticate, .firstSync])
+        XCTAssertEqual(history.last?.timings.map(\.stage), [.localIdentity, .endpointStartup, .dial, .authenticate, .firstSnapshot])
         model.disconnect()
     }
 
@@ -242,6 +242,83 @@ final class RemoteIrohFoundationTests: XCTestCase {
         XCTAssertTrue(report.contains("cellular"))
         XCTAssertFalse(report.contains("private-"))
         XCTAssertFalse(report.contains("192.0.2.1"))
+    }
+
+    @MainActor
+    func testFlappingAndManualRetryKeepOneDialAndPreserveItsRetryDeadline() async throws {
+        let credential = recoveryCredential(for: recoveryAttempt())
+        let store = RecoveryStore(record: .paired(credential))
+        let stale = RecoveryTransport()
+        let ready = RecoveryTransport()
+        var dialStarts: [ContinuousClock.Instant] = []
+        var finishFirstDial: CheckedContinuation<Void, Never>?
+        let model = recoveryModel(store: store, factory: .init(
+            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            open: { stored, _, _, diagnostics in
+                XCTAssertEqual(stored, credential)
+                diagnostics.enter(.dial)
+                dialStarts.append(.now)
+                if dialStarts.count == 1 {
+                    await withCheckedContinuation { finishFirstDial = $0 }
+                    return stale
+                }
+                return ready
+            }
+        ))
+        model.observeNetworkPath(.satisfied, interface: "wifi")
+        await waitForRecovery { finishFirstDial != nil }
+
+        model.observeNetworkPath(.unsatisfied, interface: "unknown")
+        model.observeNetworkPath(.satisfied, interface: "cellular")
+        model.observeNetworkPath(.satisfied, interface: "wifi")
+        for _ in 0..<5 { model.retryConnection() }
+        try await Task.sleep(for: .milliseconds(550))
+        XCTAssertEqual(model.networkStatus, "Online (wifi)")
+        XCTAssertEqual(dialStarts.count, 1)
+
+        model.observeNetworkPath(.satisfied, interface: "cellular")
+        model.observeNetworkPath(.satisfied, interface: "cellular")
+        await waitForRecovery { model.networkStatus == "Online (cellular)" }
+        XCTAssertEqual(dialStarts.count, 1)
+        finishFirstDial?.resume()
+        await waitForRecovery { stale.wasClosed }
+        for _ in 0..<5 { model.retryConnection() }
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(dialStarts.count, 1)
+        XCTAssertNil(model.snapshot)
+
+        await waitForRecovery(timeout: .seconds(4)) { model.connectionState == .connected }
+        XCTAssertEqual(dialStarts.count, 2)
+        let firstStart = try XCTUnwrap(dialStarts.first)
+        let secondStart = try XCTUnwrap(dialStarts.dropFirst().first)
+        XCTAssertGreaterThanOrEqual(firstStart.duration(to: secondStart), .seconds(2))
+        XCTAssertEqual(model.reconnectHistory.map(\.outcome), [.cancelled, .connected])
+        XCTAssertEqual(model.reconnectHistory.first?.reason, .networkChanged)
+        XCTAssertEqual(model.reconnectHistory.last?.network, .cellular)
+        XCTAssertEqual(store.record, .paired(credential))
+        model.disconnect()
+    }
+
+    @MainActor
+    func testSyncConfirmationTimeoutReportsItsOwnStageAndKeepsPhoneOffline() async {
+        let credential = recoveryCredential(for: recoveryAttempt())
+        let store = RecoveryStore(record: .paired(credential))
+        let transport = RecoveryTransport()
+        transport.syncConfirmationFailure = TransportError.Failure("frame I/O timed out")
+        let model = recoveryModel(store: store, factory: .init(
+            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            open: { _, _, _, _ in transport }
+        ))
+
+        await waitForRecovery { model.reconnectHistory.last?.outcome == .failed }
+        XCTAssertTrue(model.isPaired)
+        XCTAssertEqual(model.connectionState, .disconnected)
+        XCTAssertNil(model.snapshot)
+        XCTAssertEqual(model.reconnectHistory.last?.stage, .syncConfirmation)
+        XCTAssertEqual(model.reconnectHistory.last?.reason, .frameTimeout)
+        XCTAssertEqual(model.reconnectHistory.last?.snapshotBytes, 512)
+        XCTAssertEqual(model.reconnectHistory.last?.timings.suffix(2).map(\.stage), [.firstSnapshot, .syncConfirmation])
+        model.disconnect()
     }
 
     @MainActor
@@ -586,6 +663,7 @@ private final class RecoveryTransport: RemoteConnectionCandidate {
     private(set) var confirmations: [UUID] = []
     var onConfirm: ((UUID) throws -> Void)?
     var syncFailure: Error?
+    var syncConfirmationFailure: Error?
     var beforeSnapshot: (() async -> Void)?
     private(set) var wasClosed = false
     var hasEventSubscriber: Bool { eventsContinuation != nil }
@@ -598,10 +676,16 @@ private final class RecoveryTransport: RemoteConnectionCandidate {
 
     func authenticate() async throws {}
 
-    func firstSnapshot() async throws -> RemoteSnapshot {
+    func firstSnapshot(diagnostics: inout RemoteReconnectDiagnostics.Attempt) async throws -> RemoteSnapshot {
         await beforeSnapshot?()
         if let syncFailure { throw syncFailure }
-        return try await snapshot()
+        let first = try await snapshot()
+        if let syncConfirmationFailure {
+            diagnostics.snapshotBytes = 512
+            diagnostics.enter(.syncConfirmation)
+            throw syncConfirmationFailure
+        }
+        return first
     }
 
     func snapshot() async throws -> RemoteSnapshot {

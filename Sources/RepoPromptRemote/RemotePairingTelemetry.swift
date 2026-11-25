@@ -10,7 +10,8 @@ enum RemotePairingTelemetry {
     private static let reconnectAttributes: Set<String> = [
         "network", "ending_network", "network_changed", "attempt", "elapsed_ms", "recovery_ms",
         "stage", "outcome", "reason", "saved_relay_hint", "local_relay_hint", "route",
-        "local_identity_ms", "binding_ms", "endpoint_startup_ms", "dial_ms", "authenticate_ms", "first_sync_ms",
+        "local_identity_ms", "binding_ms", "endpoint_startup_ms", "dial_ms", "authenticate_ms",
+        "first_snapshot_ms", "sync_confirmation_ms", "snapshot_bytes",
         "sentry.release", "sentry.environment",
     ]
 
@@ -136,6 +137,7 @@ enum RemotePairingTelemetry {
         if let reason = entry.reason { attributes["reason"] = reason.rawValue }
         if let hint = entry.savedRelayHint { attributes["saved_relay_hint"] = hint }
         if let hint = entry.localRelayHint { attributes["local_relay_hint"] = hint }
+        if let bytes = entry.snapshotBytes { attributes["snapshot_bytes"] = bytes }
         for timing in entry.timings {
             attributes["\(timing.stage.rawValue)_ms"] = timing.milliseconds
         }

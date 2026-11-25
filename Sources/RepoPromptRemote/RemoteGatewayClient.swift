@@ -80,7 +80,7 @@ protocol RemoteConnectionCandidate: RemoteGatewayTransport {
     var refreshedServerAddress: RemoteIrohEndpointAddress? { get }
     func confirmPairing(attemptID: UUID) async throws
     func authenticate() async throws
-    func firstSnapshot() async throws -> RemoteSnapshot
+    func firstSnapshot(diagnostics: inout RemoteReconnectDiagnostics.Attempt) async throws -> RemoteSnapshot
 }
 
 extension RemoteConnectionCandidate {

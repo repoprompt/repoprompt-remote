@@ -238,8 +238,9 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         try await rpc(.snapshot)
     }
 
-    func firstSnapshot() async throws -> RemoteSnapshot {
+    func firstSnapshot(diagnostics: inout RemoteReconnectDiagnostics.Attempt) async throws -> RemoteSnapshot {
         let response = try await rpcResponse(.snapshot)
+        diagnostics.snapshotBytes = response.result?.count
         let snapshot = try decodeRPCResult(RemoteSnapshot.self, response: response)
         guard RemoteProtocol.supports(snapshot.protocolVersion) else {
             throw RemoteGatewayError.protocolMismatch(snapshot.protocolVersion)
@@ -248,6 +249,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
             throw RemoteIrohTransportError.serverEndpointMismatch
         }
         guard let sessionID else { return snapshot } // Existing pairings can connect to older Macs.
+        diagnostics.enter(.syncConfirmation)
         guard let ticket = response.syncTicket else { throw RemoteIrohTransportError.unexpectedFrame }
         let request = try RemoteWireFrame(
             kind: .syncConfirm, messageID: UUID(), sessionID: sessionID, encoding: ticket

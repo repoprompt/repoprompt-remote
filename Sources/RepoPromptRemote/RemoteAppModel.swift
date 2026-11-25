@@ -272,8 +272,17 @@ final class RemoteAppModel: ObservableObject {
     private var activeConnectionAttemptID: UUID?
     private var irohGeneration: UInt64 = 0
     private var isSceneActive = true
-    private var lastSatisfiedInterface: String?
+    private enum ObservedPath: Equatable {
+        case usable(RemoteReconnectDiagnostics.Network)
+        case requiresConnection
+        case offline
+    }
+
+    private var appliedNetworkPath: ObservedPath?
+    private var pendingNetworkPath: ObservedPath?
+    private var networkPathTask: Task<Void, Never>?
     private var networkAvailable = true
+    private var reconnectBackoff = RemoteConnectionBackoff()
     private var reconnectNetwork = RemoteReconnectDiagnostics.Network.unknown
     private var reconnectNetworkRevision = 0
     private var reconnectAttempt = 0
@@ -335,46 +344,68 @@ final class RemoteAppModel: ObservableObject {
 
     private func startNetworkMonitoring() {
         networkMonitor = RemoteNetworkMonitor { [weak self] status, interface in
-            guard let self else { return }
-            let newNetwork: RemoteReconnectDiagnostics.Network
-            switch status {
-            case .satisfied: newNetwork = .init(interface: interface)
-            case .unsatisfied: newNetwork = .offline
-            default: newNetwork = .unknown
-            }
-            if reconnectNetwork != newNetwork {
-                reconnectNetwork = newNetwork
-                reconnectNetworkRevision += 1
-            }
-            switch status {
-            case .satisfied:
-                let pathChanged = lastSatisfiedInterface.map { $0 != interface } ?? false
-                let wasOffline = !networkAvailable
-                lastSatisfiedInterface = interface
-                networkAvailable = true
-                networkStatus = "Online (\(interface))"
-                // QUIC can migrate a healthy connection. A dial already in progress needs fresh routes.
-                if (pathChanged || wasOffline), connectionState != .connected {
-                    stopConnection()
-                }
-                startConnectionRecovery()
-            case .unsatisfied:
-                networkAvailable = false
-                networkStatus = "Offline"
-                stopConnection()
-                if pairingRecord != nil {
-                    connectionIssue = "Network unavailable. Retrying when the phone is back online."
-                    lastConnectionEvent = "Network unavailable"
-                }
-            case .requiresConnection:
-                networkAvailable = true
-                networkStatus = "Connection required"
-                startConnectionRecovery()
-            @unknown default:
-                networkStatus = "Unknown"
-            }
+            self?.observeNetworkPath(status, interface: interface)
         }
         networkMonitor?.start()
+    }
+
+    func observeNetworkPath(_ status: NWPath.Status, interface: String) {
+        let path: ObservedPath
+        switch status {
+        case .satisfied: path = .usable(.init(interface: interface))
+        case .unsatisfied: path = .offline
+        case .requiresConnection: path = .requiresConnection
+        @unknown default: return
+        }
+        guard path != pendingNetworkPath else { return }
+        networkPathTask?.cancel()
+        networkPathTask = nil
+        pendingNetworkPath = nil
+        guard path != appliedNetworkPath else { return }
+        if appliedNetworkPath == nil {
+            applyNetworkPath(path)
+            return
+        }
+
+        pendingNetworkPath = path
+        networkPathTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(450))
+            } catch { return }
+            guard let self, pendingNetworkPath == path, !Task.isCancelled else { return }
+            pendingNetworkPath = nil
+            networkPathTask = nil
+            applyNetworkPath(path)
+        }
+    }
+
+    private func applyNetworkPath(_ path: ObservedPath) {
+        let previousPath = appliedNetworkPath
+        appliedNetworkPath = path
+        reconnectNetworkRevision += 1
+        switch path {
+        case let .usable(network):
+            reconnectNetwork = network
+            networkAvailable = true
+            networkStatus = "Online (\(network.rawValue))"
+            // Healthy QUIC streams can migrate. A handshake still in progress needs fresh routes.
+            if previousPath != nil, connectionState != .connected { stopConnection() }
+            startConnectionRecovery()
+        case .offline:
+            reconnectNetwork = .offline
+            networkAvailable = false
+            networkStatus = "Offline"
+            stopConnection()
+            if pairingRecord != nil {
+                connectionIssue = "Network unavailable. Retrying when the phone is back online."
+                lastConnectionEvent = "Network unavailable"
+            }
+        case .requiresConnection:
+            reconnectNetwork = .unknown
+            networkAvailable = true
+            networkStatus = "Connection required"
+            startConnectionRecovery()
+        }
     }
 
     deinit {
@@ -385,6 +416,7 @@ final class RemoteAppModel: ObservableObject {
         transcriptOlderTasks.values.forEach { $0.cancel() }
         transcriptDetailTasks.values.forEach { $0.cancel() }
         networkMonitor?.stop()
+        networkPathTask?.cancel()
         transientErrorTask?.cancel()
         notificationObservers.forEach(NotificationCenter.default.removeObserver)
     }
@@ -553,6 +585,7 @@ final class RemoteAppModel: ObservableObject {
     }
 
     func retryConnection() {
+        guard unpairWorkID == nil else { return }
         automaticRecoveryPaused = false
         if pairingStorageUnavailable {
             restorePairing()
@@ -563,7 +596,6 @@ final class RemoteAppModel: ObservableObject {
             connectionIssue = "Network unavailable. Retrying when the phone is back online."
             return
         }
-        if isRecovering { stopConnection() }
         startConnectionRecovery()
     }
 
@@ -584,9 +616,8 @@ final class RemoteAppModel: ObservableObject {
     }
 
     private func stopConnection() {
-        activeConnectionAttemptID = nil
+        // The cancelled supervisor owns the slot until its in-flight transport has unwound.
         connectionTask?.cancel()
-        connectionTask = nil
         isRecovering = false
         pairingProgress = nil
         cancelAllTranscriptTasks()
@@ -1272,6 +1303,7 @@ final class RemoteAppModel: ObservableObject {
         unpairWork?.cancel()
         let preferredGateway = gateway
         gateway = nil
+        automaticRecoveryPaused = true
         stopConnection()
         let attempts = makeUnpairAttempts(
             stored: storedCredential,
@@ -1354,6 +1386,7 @@ final class RemoteAppModel: ObservableObject {
     private func clearLocalPairing(message: String = "Removing pairing from the Mac…") {
         recoveryStartedAt = nil
         reconnectAttempt = 0
+        reconnectBackoff = .init()
         do {
             try credentialStore.delete()
         } catch {
@@ -1424,7 +1457,7 @@ final class RemoteAppModel: ObservableObject {
 
     private func startConnectionRecovery() {
         guard connectionTask == nil, isSceneActive, networkAvailable,
-              pairingRecord != nil, !automaticRecoveryPaused, !pairingStorageUnavailable
+              pairingRecord != nil, unpairWorkID == nil, !automaticRecoveryPaused, !pairingStorageUnavailable
         else { return }
         let generation = UUID()
         activeConnectionAttemptID = generation
@@ -1448,21 +1481,29 @@ final class RemoteAppModel: ObservableObject {
                 connectionTask = nil
                 isRecovering = false
                 pairingProgress = nil
+                if Task.isCancelled { startConnectionRecovery() }
             }
         }
 
-        var consecutiveFailures = 0
-        while let pairingRecord, !Task.isCancelled {
+        while !Task.isCancelled {
+            var attemptStarted = false
             do {
+                if let deadline = reconnectBackoff.nextAttempt, deadline > .now {
+                    try await ContinuousClock().sleep(until: deadline)
+                }
                 try checkConnectionGeneration(generation)
+                guard let pairingRecord else { return }
+                reconnectBackoff.started(at: .now)
+                attemptStarted = true
                 let (transport, firstSnapshot) = try await establishConnection(pairingRecord, generation: generation)
+                attemptStarted = false
                 guard (try? checkConnectionGeneration(generation)) != nil else {
                     transport.close()
                     return
                 }
                 gateway = transport
                 applySnapshot(firstSnapshot)
-                consecutiveFailures = 0
+                reconnectBackoff.connected()
                 isRecovering = false
                 pairingProgress = nil
                 connectionIssue = nil
@@ -1477,7 +1518,12 @@ final class RemoteAppModel: ObservableObject {
                 registerPendingNotificationIfPossible()
                 try await consumeEvents(using: transport, generation: generation)
             } catch {
-                guard (try? checkConnectionGeneration(generation)) != nil else { return }
+                guard (try? checkConnectionGeneration(generation)) != nil else {
+                    if attemptStarted, pairingRecord != nil, !automaticRecoveryPaused {
+                        reconnectBackoff.failed(at: .now)
+                    }
+                    return
+                }
                 cancelAllTranscriptTasks()
                 endConnectionCycle()
                 pairingProgress = nil
@@ -1498,11 +1544,7 @@ final class RemoteAppModel: ObservableObject {
                     return
                 }
                 isRecovering = true
-                let seconds = pow(2.0, Double(min(consecutiveFailures, 4))) * Double.random(in: 0.8 ... 1.2)
-                consecutiveFailures = min(consecutiveFailures + 1, 4)
-                do {
-                    try await Task.sleep(for: .seconds(seconds))
-                } catch { return }
+                reconnectBackoff.failed(at: .now)
             }
         }
     }
@@ -1594,9 +1636,9 @@ final class RemoteAppModel: ObservableObject {
             try await transport.authenticate()
             try checkConnectionGeneration(generation)
             stage = .initialSnapshot
-            reconnect.enter(.firstSync)
+            reconnect.enter(.firstSnapshot)
             pairingProgress = "Loading chats…"
-            let newSnapshot = try await transport.firstSnapshot()
+            let newSnapshot = try await transport.firstSnapshot(diagnostics: &reconnect)
             try checkConnectionGeneration(generation)
             updateServerAddress(transport.refreshedServerAddress, for: stored)
             Self.connectionLogger.info("Remote ready after \(String(describing: start.duration(to: .now)), privacy: .public)")

@@ -26,7 +26,9 @@ enum RemoteReconnectDiagnostics {
         case endpointStartup = "endpoint_startup"
         case dial
         case authenticate
-        case firstSync = "first_sync"
+        case firstSync = "first_sync" // Retain decoding for reports saved by earlier builds.
+        case firstSnapshot = "first_snapshot"
+        case syncConfirmation = "sync_confirmation"
     }
 
     enum Outcome: String, Codable {
@@ -105,6 +107,7 @@ enum RemoteReconnectDiagnostics {
         let savedRelayHint: Bool?
         let localRelayHint: Bool?
         let route: RemoteIrohPathKind?
+        let snapshotBytes: Int?
     }
 
     struct Attempt {
@@ -115,6 +118,7 @@ enum RemoteReconnectDiagnostics {
         private var timings: [Timing] = []
         var savedRelayHint: Bool?
         var localRelayHint: Bool?
+        var snapshotBytes: Int?
 
         mutating func enter(_ next: Stage) {
             let now = ContinuousClock.now
@@ -139,7 +143,8 @@ enum RemoteReconnectDiagnostics {
                 attempt: attempt, elapsedMilliseconds: milliseconds(start.duration(to: now)),
                 recoveryMilliseconds: milliseconds(recoveryStart.duration(to: now)),
                 stage: stage, timings: timings + [Timing(stage: stage, milliseconds: milliseconds(stageStart.duration(to: now)))],
-                outcome: outcome, reason: reason, savedRelayHint: savedRelayHint, localRelayHint: localRelayHint, route: route
+                outcome: outcome, reason: reason, savedRelayHint: savedRelayHint, localRelayHint: localRelayHint,
+                route: route, snapshotBytes: snapshotBytes
             )
         }
 
@@ -167,5 +172,27 @@ enum RemoteReconnectDiagnostics {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(history) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+
+/// A single recovery clock survives repeated path updates and manual retry requests.
+struct RemoteConnectionBackoff {
+    private(set) var nextAttempt: ContinuousClock.Instant?
+    private var failures = 0
+
+    mutating func started(at now: ContinuousClock.Instant) {
+        nextAttempt = now.advanced(by: .seconds(2))
+    }
+
+    mutating func connected() {
+        failures = 0
+    }
+
+    mutating func failed(at now: ContinuousClock.Instant) {
+        let delay = pow(2.0, Double(failures)) * Double.random(in: 0.8 ... 1.2)
+        failures = min(failures + 1, 4)
+        let retry = now.advanced(by: .seconds(delay))
+        nextAttempt = max(nextAttempt ?? retry, retry)
     }
 }
