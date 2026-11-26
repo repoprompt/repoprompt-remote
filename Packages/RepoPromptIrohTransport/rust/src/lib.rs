@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
+use iroh::{Endpoint, EndpointAddr, SecretKey, TransportAddr, endpoint::presets};
 use once_cell::sync::Lazy;
 use thiserror::Error;
 use tokio::{
@@ -28,7 +28,11 @@ pub const MAX_CONCURRENT_STREAMS: usize = 8;
 pub const MAX_ACCEPTED_CONNECTIONS: usize = 16;
 pub const REPOPROMPT_ALPN: &[u8] = b"repoprompt-remote/1";
 
-const FRAME_IO_TIMEOUT: Duration = Duration::from_secs(15);
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
+const RESPONSE_START_TIMEOUT: Duration = Duration::from_secs(30);
+const MIN_FRAME_TRANSFER_SECS: u64 = 90;
+const MAX_FRAME_TRANSFER_SECS: u64 = 300;
+const TRANSFER_BUDGET_BYTES_PER_SECOND: usize = 16 * 1024;
 const CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 
 static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
@@ -73,7 +77,6 @@ pub struct IncomingConnection {
 
 #[derive(uniffi::Object)]
 pub struct IncomingRequest {
-    connection: iroh::endpoint::Connection,
     peer_endpoint_id: String,
     generation: u64,
     path_summary: String,
@@ -115,24 +118,48 @@ impl IncomingRequest {
                 .await
                 .take()
                 .ok_or_else(|| TransportError::message("request already completed"))?;
-            let result = tokio::time::timeout(FRAME_IO_TIMEOUT, async {
-                write_frame_with_limit(&mut send, &payload, MAX_RESPONSE_FRAME_BYTES).await?;
-                send.finish().map_err(|error| {
-                    TransportError::from_display("finish response stream", error)
-                })?;
-                Ok(())
-            })
-            .await
-            .map_err(|_| TransportError::message("response frame I/O timed out"))?;
-            request.permit.lock().await.take();
-            result
+            let result = write_frame_with_limit(&mut send, &payload, MAX_RESPONSE_FRAME_BYTES)
+                .await
+                .and_then(|deadline| {
+                    send.finish().map_err(|error| {
+                        TransportError::from_display("finish response stream", error)
+                    })?;
+                    Ok(deadline)
+                });
+            let permit = request.permit.lock().await.take();
+            match result {
+                Ok(deadline) => {
+                    // A queued response can still be draining over a constrained path.
+                    // Count it as active until the peer acknowledges it or its budget expires.
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        if tokio::time::timeout_at(deadline, send.stopped())
+                            .await
+                            .is_err()
+                        {
+                            let _ = send.reset(3_u32.into());
+                        }
+                    });
+                    Ok(())
+                }
+                Err(error) => {
+                    let _ = send.reset(3_u32.into());
+                    Err(error)
+                }
+            }
         })
         .await?
     }
 
     pub fn close(&self) {
-        self.connection
-            .close(0_u32.into(), b"request closed by Swift");
+        if let Ok(mut stream) = self.send.try_lock()
+            && let Some(mut stream) = stream.take()
+        {
+            let _ = stream.reset(3_u32.into());
+        }
+        if let Ok(mut permit) = self.permit.try_lock() {
+            permit.take();
+        }
     }
 }
 
@@ -297,7 +324,7 @@ async fn run_accept_loop(
         let info = IncomingConnection {
             peer_endpoint_id: connection.remote_id().to_string(),
             generation,
-            path_summary: format!("{:?}", connection.paths()),
+            path_summary: selected_path(&connection).into(),
         };
         if echo_mode && incoming_tx.send(info).await.is_err() {
             connection.close(0_u32.into(), b"endpoint stopped");
@@ -323,20 +350,20 @@ async fn run_echo_connection(
     let stream_limit = Arc::new(Semaphore::new(MAX_CONCURRENT_STREAMS));
     loop {
         let stream = tokio::time::timeout(CONNECTION_IDLE_TIMEOUT, connection.accept_bi()).await;
-        let Ok(Ok((send, recv))) = stream else {
+        let Ok(Ok((mut send, mut recv))) = stream else {
             connection.close(3_u32.into(), b"connection idle or closed");
             break;
         };
         let Ok(permit) = stream_limit.clone().try_acquire_owned() else {
-            connection.close(2_u32.into(), b"too many concurrent streams");
-            break;
+            let _ = send.reset(2_u32.into());
+            let _ = recv.stop(2_u32.into());
+            continue;
         };
-        let stream_connection = connection.clone();
         tokio::spawn(async move {
             let _permit = permit;
-            let result = tokio::time::timeout(FRAME_IO_TIMEOUT, echo_one_frame(send, recv)).await;
-            if !matches!(result, Ok(Ok(()))) {
-                stream_connection.close(3_u32.into(), b"frame I/O failed or timed out");
+            if echo_one_frame(&mut send, &mut recv).await.is_err() {
+                let _ = send.reset(3_u32.into());
+                let _ = recv.stop(3_u32.into());
             }
         });
     }
@@ -351,31 +378,33 @@ async fn run_application_connection(
     let stream_limit = Arc::new(Semaphore::new(MAX_CONCURRENT_STREAMS));
     loop {
         let stream = tokio::time::timeout(CONNECTION_IDLE_TIMEOUT, connection.accept_bi()).await;
-        let Ok(Ok((send, mut recv))) = stream else {
-            connection.close(3_u32.into(), b"connection idle or closed");
-            break;
+        let (mut send, mut recv) = match stream {
+            Ok(Ok(stream)) => stream,
+            Err(_) if stream_limit.available_permits() < MAX_CONCURRENT_STREAMS => continue,
+            _ => {
+                connection.close(3_u32.into(), b"connection idle or closed");
+                break;
+            }
         };
         let Ok(permit) = stream_limit.clone().try_acquire_owned() else {
-            connection.close(2_u32.into(), b"too many concurrent streams");
-            break;
+            let _ = send.reset(2_u32.into());
+            let _ = recv.stop(2_u32.into());
+            continue;
         };
         let stream_connection = connection.clone();
         let stream_requests = request_tx.clone();
         tokio::spawn(async move {
-            let payload = tokio::time::timeout(
-                FRAME_IO_TIMEOUT,
-                read_frame_with_limit(&mut recv, MAX_FRAME_BYTES),
-            )
-            .await;
-            let Ok(Ok(payload)) = payload else {
-                stream_connection.close(3_u32.into(), b"request frame I/O failed or timed out");
+            let payload =
+                read_frame_with_limit(&mut recv, MAX_FRAME_BYTES, STREAM_IDLE_TIMEOUT).await;
+            let Ok(payload) = payload else {
+                let _ = send.reset(3_u32.into());
+                let _ = recv.stop(3_u32.into());
                 return;
             };
             let request = Arc::new(IncomingRequest {
                 peer_endpoint_id: stream_connection.remote_id().to_string(),
                 generation,
-                path_summary: format!("{:?}", stream_connection.paths()),
-                connection: stream_connection.clone(),
+                path_summary: selected_path(&stream_connection).into(),
                 payload,
                 send: tokio::sync::Mutex::new(Some(send)),
                 permit: tokio::sync::Mutex::new(Some(permit)),
@@ -388,11 +417,11 @@ async fn run_application_connection(
 }
 
 async fn echo_one_frame(
-    mut send: iroh::endpoint::SendStream,
-    mut recv: iroh::endpoint::RecvStream,
+    send: &mut iroh::endpoint::SendStream,
+    recv: &mut iroh::endpoint::RecvStream,
 ) -> Result<(), TransportError> {
-    let payload = read_frame(&mut recv).await?;
-    write_frame(&mut send, &payload).await?;
+    let payload = read_frame(recv).await?;
+    write_frame(send, &payload).await?;
     send.finish()
         .map_err(|error| TransportError::from_display("finish echo stream", error))?;
     Ok(())
@@ -572,6 +601,19 @@ impl Drop for TransportEndpoint {
     }
 }
 
+fn selected_path(connection: &iroh::endpoint::Connection) -> &'static str {
+    let paths = connection.paths();
+    let Some(path) = paths.iter().find(|path| path.is_selected()) else {
+        return "unknown";
+    };
+    match path.remote_addr() {
+        TransportAddr::Relay(_) => "relay",
+        TransportAddr::Ip(address) if is_local_ip(address.ip()) => "local_direct",
+        TransportAddr::Ip(_) => "internet_direct",
+        _ => "unknown",
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct TransportConnection {
     connection: iroh::endpoint::Connection,
@@ -592,10 +634,27 @@ impl TransportConnection {
     }
 
     pub fn path_summary(&self) -> String {
-        format!("{:?}", self.connection.paths())
+        selected_path(&self.connection).into()
     }
 
     pub async fn send_frame(self: Arc<Self>, payload: Vec<u8>) -> Result<Vec<u8>, TransportError> {
+        self.send_frame_with_response_timeout(payload, RESPONSE_START_TIMEOUT)
+            .await
+    }
+
+    pub fn close(&self) {
+        if !self.closed.swap(true, Ordering::AcqRel) {
+            self.connection.close(0_u32.into(), b"closed by Swift");
+        }
+    }
+}
+
+impl TransportConnection {
+    async fn send_frame_with_response_timeout(
+        self: Arc<Self>,
+        payload: Vec<u8>,
+        response_timeout: Duration,
+    ) -> Result<Vec<u8>, TransportError> {
         if payload.len() > MAX_FRAME_BYTES {
             return Err(TransportError::message(format!(
                 "frame length {} exceeds {MAX_FRAME_BYTES}",
@@ -613,34 +672,26 @@ impl TransportConnection {
         let connection = self.connection.clone();
         on_runtime(async move {
             let _permit = permit;
-            let timeout_connection = connection.clone();
-            let result = tokio::time::timeout(FRAME_IO_TIMEOUT, async move {
-                let (mut send, mut recv) = connection
-                    .open_bi()
+            let (mut send, mut recv) =
+                tokio::time::timeout(STREAM_IDLE_TIMEOUT, connection.open_bi())
                     .await
+                    .map_err(|_| TransportError::message("frame I/O timed out opening stream"))?
                     .map_err(|error| TransportError::from_display("open stream", error))?;
+            let result = async {
                 write_frame(&mut send, &payload).await?;
                 send.finish().map_err(|error| {
                     TransportError::from_display("finish request stream", error)
                 })?;
-                read_frame_with_limit(&mut recv, MAX_RESPONSE_FRAME_BYTES).await
-            })
-            .await;
-            match result {
-                Ok(result) => result,
-                Err(_) => {
-                    timeout_connection.close(3_u32.into(), b"frame I/O timed out");
-                    Err(TransportError::message("frame I/O timed out"))
-                }
+                read_frame_with_limit(&mut recv, MAX_RESPONSE_FRAME_BYTES, response_timeout).await
             }
+            .await;
+            if result.is_err() {
+                let _ = send.reset(3_u32.into());
+                let _ = recv.stop(3_u32.into());
+            }
+            result
         })
         .await?
-    }
-
-    pub fn close(&self) {
-        if !self.closed.swap(true, Ordering::AcqRel) {
-            self.connection.close(0_u32.into(), b"closed by Swift");
-        }
     }
 }
 
@@ -648,14 +699,16 @@ async fn write_frame(
     send: &mut iroh::endpoint::SendStream,
     payload: &[u8],
 ) -> Result<(), TransportError> {
-    write_frame_with_limit(send, payload, MAX_FRAME_BYTES).await
+    write_frame_with_limit(send, payload, MAX_FRAME_BYTES)
+        .await
+        .map(|_| ())
 }
 
 async fn write_frame_with_limit(
     send: &mut iroh::endpoint::SendStream,
     payload: &[u8],
     maximum: usize,
-) -> Result<(), TransportError> {
+) -> Result<tokio::time::Instant, TransportError> {
     if payload.len() > maximum {
         return Err(TransportError::message(format!(
             "frame length {} exceeds {maximum}",
@@ -664,26 +717,40 @@ async fn write_frame_with_limit(
     }
     let length = u32::try_from(payload.len())
         .map_err(|_| TransportError::message("frame length does not fit in four bytes"))?;
-    send.write_all(&length.to_be_bytes())
-        .await
-        .map_err(|error| TransportError::from_display("write frame length", error))?;
-    send.write_all(payload)
-        .await
-        .map_err(|error| TransportError::from_display("write frame body", error))?;
-    Ok(())
+    let prefix = length.to_be_bytes();
+    let deadline = frame_transfer_deadline(payload.len());
+    for (stage, mut remaining) in [
+        ("write frame length", prefix.as_slice()),
+        ("write frame body", payload),
+    ] {
+        while !remaining.is_empty() {
+            let next = deadline.min(tokio::time::Instant::now() + STREAM_IDLE_TIMEOUT);
+            let written = tokio::time::timeout_at(next, send.write(remaining))
+                .await
+                .map_err(|_| TransportError::message(format!("frame I/O timed out at {stage}")))?
+                .map_err(|error| TransportError::from_display(stage, error))?;
+            if written == 0 {
+                return Err(TransportError::message(format!("no progress at {stage}")));
+            }
+            remaining = &remaining[written..];
+        }
+    }
+    Ok(deadline)
 }
 
 async fn read_frame(recv: &mut iroh::endpoint::RecvStream) -> Result<Vec<u8>, TransportError> {
-    read_frame_with_limit(recv, MAX_FRAME_BYTES).await
+    read_frame_with_limit(recv, MAX_FRAME_BYTES, STREAM_IDLE_TIMEOUT).await
 }
 
 async fn read_frame_with_limit(
     recv: &mut iroh::endpoint::RecvStream,
     maximum: usize,
+    start_timeout: Duration,
 ) -> Result<Vec<u8>, TransportError> {
     let mut prefix = [0_u8; 4];
-    recv.read_exact(&mut prefix)
+    tokio::time::timeout(start_timeout, recv.read_exact(&mut prefix))
         .await
+        .map_err(|_| TransportError::message("frame I/O timed out waiting for frame length"))?
         .map_err(|error| TransportError::from_display("read frame length", error))?;
     let length = u32::from_be_bytes(prefix) as usize;
     if length > maximum {
@@ -692,10 +759,25 @@ async fn read_frame_with_limit(
         )));
     }
     let mut payload = vec![0_u8; length];
-    recv.read_exact(&mut payload)
-        .await
-        .map_err(|error| TransportError::from_display("read frame body", error))?;
+    let deadline = frame_transfer_deadline(length);
+    let mut offset = 0;
+    while offset < length {
+        let next = deadline.min(tokio::time::Instant::now() + STREAM_IDLE_TIMEOUT);
+        let received = tokio::time::timeout_at(next, recv.read(&mut payload[offset..]))
+            .await
+            .map_err(|_| TransportError::message("frame I/O timed out reading frame body"))?
+            .map_err(|error| TransportError::from_display("read frame body", error))?
+            .ok_or_else(|| TransportError::message("stream ended before complete frame body"))?;
+        offset += received;
+    }
     Ok(payload)
+}
+
+fn frame_transfer_deadline(bytes: usize) -> tokio::time::Instant {
+    let seconds = bytes.div_ceil(TRANSFER_BUDGET_BYTES_PER_SECOND) as u64;
+    let budget =
+        Duration::from_secs(seconds.clamp(MIN_FRAME_TRANSFER_SECS, MAX_FRAME_TRANSFER_SECS));
+    tokio::time::Instant::now() + budget
 }
 
 uniffi::setup_scaffolding!();
@@ -824,6 +906,80 @@ mod tests {
             send_task.await.unwrap().unwrap(),
             b"application response".to_vec()
         );
+        connection.close();
+        client.shutdown().await.unwrap();
+        server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stalled_response_does_not_close_authenticated_connection() {
+        let server = start_application_endpoint(secret(18), REPOPROMPT_ALPN.to_vec(), false, 50)
+            .await
+            .unwrap();
+        let client = start_application_endpoint(secret(19), REPOPROMPT_ALPN.to_vec(), false, 51)
+            .await
+            .unwrap();
+        let connection = client
+            .clone()
+            .connect(
+                server.snapshot().unwrap().address_json,
+                REPOPROMPT_ALPN.to_vec(),
+            )
+            .await
+            .unwrap();
+        let first = tokio::spawn(connection.clone().send_frame_with_response_timeout(
+            b"stalled request".to_vec(),
+            Duration::from_millis(150),
+        ));
+        let stalled = server.clone().accept_request().await.unwrap();
+        let error = first.await.unwrap().unwrap_err();
+        assert!(error.to_string().contains("waiting for frame length"));
+        stalled.close();
+
+        let second = tokio::spawn(connection.clone().send_frame(b"next request".to_vec()));
+        let request = server.clone().accept_request().await.unwrap();
+        assert_eq!(request.peer_endpoint_id(), stalled.peer_endpoint_id());
+        request.respond(b"next response".to_vec()).await.unwrap();
+        assert_eq!(second.await.unwrap().unwrap(), b"next response".to_vec());
+        connection.close();
+        client.shutdown().await.unwrap();
+        server.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn response_body_can_continue_past_the_first_byte_deadline() {
+        let server = start_application_endpoint(secret(28), REPOPROMPT_ALPN.to_vec(), false, 60)
+            .await
+            .unwrap();
+        let client = start_application_endpoint(secret(29), REPOPROMPT_ALPN.to_vec(), false, 61)
+            .await
+            .unwrap();
+        let connection = client
+            .clone()
+            .connect(
+                server.snapshot().unwrap().address_json,
+                REPOPROMPT_ALPN.to_vec(),
+            )
+            .await
+            .unwrap();
+        let response_start_budget = Duration::from_millis(500);
+        let response = tokio::spawn(
+            connection
+                .clone()
+                .send_frame_with_response_timeout(b"request".to_vec(), response_start_budget),
+        );
+        let request = server.clone().accept_request().await.unwrap();
+        let mut send = request.send.lock().await.take().unwrap();
+        send.write_all(&6_u32.to_be_bytes()).await.unwrap();
+        send.write_all(b"slow").await.unwrap();
+        tokio::time::sleep(response_start_budget + Duration::from_millis(50)).await;
+        send.write_all(b"ly").await.unwrap();
+        send.finish().unwrap();
+        assert_eq!(response.await.unwrap().unwrap(), b"slowly".to_vec());
+        assert!(matches!(
+            connection.path_summary().as_str(),
+            "local_direct" | "internet_direct"
+        ));
         connection.close();
         client.shutdown().await.unwrap();
         server.shutdown().await.unwrap();

@@ -13,6 +13,7 @@ struct RemoteMobileShell: View {
     @State private var showingWorkflowLaunch = false
     @State private var showingSettings = false
     @State private var showingChatDetails = false
+    @State private var showingConnectionDetails = false
 
     private var preferredWorkspace: RemoteWorkspaceSummary? {
         model.workspaces.first(where: \.isOpen) ?? model.workspaces.first
@@ -45,7 +46,11 @@ struct RemoteMobileShell: View {
     var body: some View {
         ZStack(alignment: .leading) {
             NavigationStack {
-                Group {
+                VStack(spacing: 0) {
+                    if let error = model.transientError {
+                        RemoteErrorBanner(message: error)
+                            .padding(.horizontal, 12)
+                    }
                     if showingWorkflowLaunch, let workspace = selectedWorkspace {
                         RemoteWorkflowLaunchView(workspace: workspace, onCancel: closeWorkflowLaunch)
                             .id(workspace.workspaceID)
@@ -87,9 +92,10 @@ struct RemoteMobileShell: View {
                         }
                         .accessibilityLabel("Open projects and chats")
                     }
-                    if !showingWorkflowLaunch {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            HStack(spacing: 14) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HStack(spacing: 12) {
+                            connectionIndicator
+                            if !showingWorkflowLaunch {
                                 if let session = model.sessions.first(where: { $0.id == selectedSessionID }) {
                                     Button { showingChatDetails = true } label: {
                                         Image(systemName: "info.circle")
@@ -107,7 +113,6 @@ struct RemoteMobileShell: View {
                         }
                     }
                 }
-                .safeAreaInset(edge: .top, spacing: 0) { connectionBanner }
             }
 
             if drawerIsOpen {
@@ -250,34 +255,57 @@ struct RemoteMobileShell: View {
         withAnimation(.easeOut(duration: 0.22)) { drawerIsOpen = false }
     }
 
-    @ViewBuilder
-    private var connectionBanner: some View {
-        if model.connectionState == .disconnected || model.transientError != nil {
-            VStack(spacing: 8) {
-                if model.connectionState == .disconnected {
-                    VStack(spacing: 5) {
-                        Label(model.pairingProgress ?? model.connectionStatusLabel, systemImage: "wifi.exclamationmark")
-                            .font(.footnote.weight(.semibold))
-                        if let issue = model.connectionIssue {
-                            Text(issue).font(.caption).multilineTextAlignment(.center)
-                        }
-                        if model.snapshot != nil {
-                            Text("Showing the last sync").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if model.connectionIssue != nil || !model.isRecovering {
-                            Button("Reconnect") { model.retryConnection() }
-                                .buttonStyle(.bordered)
-                        }
-                    }
-                    .padding(8)
+    private var connectionTitle: String {
+        model.pairingProgress ?? model.connectionStatusLabel
+    }
+
+    private var connectionColor: Color {
+        if model.connectionState == .connected { return .green }
+        if model.isRecovering { return .yellow }
+        return .red
+    }
+
+    private var connectionIndicator: some View {
+        Button {
+            showingConnectionDetails = true
+        } label: {
+            Circle()
+                .fill(connectionColor)
+                .frame(width: 9, height: 9)
+                .frame(width: 32, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Connection status")
+        .accessibilityValue(connectionTitle)
+        .accessibilityHint("Shows connection details")
+        .popover(isPresented: $showingConnectionDetails) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(connectionColor)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    Text(connectionTitle).font(.subheadline.weight(.semibold))
                 }
-                if let error = model.transientError { RemoteErrorBanner(message: error) }
+                if model.connectionState != .connected, model.snapshot != nil {
+                    Text("Showing last sync").font(.footnote).foregroundStyle(.secondary)
+                }
+                if model.connectionState != .connected {
+                    if let issue = model.connectionIssue {
+                        Text(issue).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if !model.isRecovering {
+                        Button("Reconnect") { model.retryConnection() }.font(.footnote.weight(.medium))
+                    }
+                }
             }
-            .padding(.top, 8)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
+            .padding(16)
+            .frame(idealWidth: 220, maxWidth: 260, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .presentationCompactAdaptation(.popover)
         }
     }
+
 }
 
 private struct MobileProvisionalSessionView: View {

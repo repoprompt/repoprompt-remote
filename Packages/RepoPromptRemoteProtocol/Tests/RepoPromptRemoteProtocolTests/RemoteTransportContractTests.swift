@@ -2,6 +2,81 @@ import XCTest
 @testable import RepoPromptRemoteProtocol
 
 final class RemoteTransportContractTests: XCTestCase {
+    func testSnapshotCompressionIsOptInAndPreservesWireResult() throws {
+        let snapshot = Data(String(repeating: #"{"workspaceID":"workspace","status":"running"}"#, count: 10_000).utf8)
+        let syncTicket = UUID()
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let legacyRequest = try decoder.decode(
+            RemoteRPCRequest.self,
+            from: encoder.encode(RemoteRPCRequest(operation: .snapshot))
+        )
+        XCTAssertNil(legacyRequest.acceptsCompressedSnapshot)
+        let legacyResponse = RemoteRPCResponse(result: snapshot, syncTicket: syncTicket)
+        XCTAssertNil(legacyResponse.uncompressedSnapshotBytes)
+        XCTAssertEqual(try legacyResponse.decodedResult(), snapshot)
+
+        let request = RemoteRPCRequest(operation: .snapshot, acceptsCompressedSnapshot: true)
+        XCTAssertEqual(try decoder.decode(RemoteRPCRequest.self, from: encoder.encode(request)), request)
+        let response = RemoteRPCResponse(result: snapshot, syncTicket: syncTicket, compressSnapshot: true)
+        let legacyFrame = try RemoteWireFrame(kind: .rpcResponse, encoding: legacyResponse)
+        let compressedFrame = try RemoteWireFrame(kind: .rpcResponse, encoding: response)
+        XCTAssertLessThan(try encoder.encode(compressedFrame).count, try encoder.encode(legacyFrame).count / 4)
+        let decoded = try compressedFrame.decodedPayload(as: RemoteRPCResponse.self, expectedKind: .rpcResponse)
+        XCTAssertEqual(decoded.uncompressedSnapshotBytes, snapshot.count)
+        XCTAssertEqual(decoded.syncTicket, syncTicket)
+        XCTAssertEqual(try decoded.decodedResult(), snapshot)
+    }
+
+    func testSnapshotWireCompatibilityWithPreviousClientAndServer() throws {
+        struct PreviousRequest: Codable {
+            let operation: RemoteRPCOperation
+            let payload: Data
+        }
+
+        struct PreviousResponse: Codable {
+            let result: Data
+            let syncTicket: UUID?
+        }
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let snapshot = Data(repeating: 42, count: 20_000)
+        let ticket = UUID()
+        let previousRequest = PreviousRequest(operation: .snapshot, payload: Data())
+        let currentRequest = try decoder.decode(RemoteRPCRequest.self, from: encoder.encode(previousRequest))
+        let currentResponse = RemoteRPCResponse(
+            result: snapshot, syncTicket: ticket, compressSnapshot: currentRequest.acceptsCompressedSnapshot == true
+        )
+        let receivedByPreviousClient = try decoder.decode(PreviousResponse.self, from: encoder.encode(currentResponse))
+        XCTAssertEqual(receivedByPreviousClient.result, snapshot)
+        XCTAssertEqual(receivedByPreviousClient.syncTicket, ticket)
+
+        let upgradedRequest = RemoteRPCRequest(operation: .snapshot, acceptsCompressedSnapshot: true)
+        let receivedByPreviousServer = try decoder.decode(PreviousRequest.self, from: encoder.encode(upgradedRequest))
+        XCTAssertEqual(receivedByPreviousServer.operation, .snapshot)
+        XCTAssertEqual(receivedByPreviousServer.payload, Data())
+        let previousResponse = PreviousResponse(result: snapshot, syncTicket: ticket)
+        let receivedByCurrentClient = try decoder.decode(RemoteRPCResponse.self, from: encoder.encode(previousResponse))
+        XCTAssertEqual(try receivedByCurrentClient.decodedResult(), snapshot)
+        XCTAssertEqual(receivedByCurrentClient.syncTicket, ticket)
+    }
+
+    func testCompressedSnapshotRejectsMismatchedOrUnboundedOutput() throws {
+        let snapshot = Data(repeating: 42, count: 4_096)
+        let response = RemoteRPCResponse(result: snapshot, compressSnapshot: true)
+        let compressed = try XCTUnwrap(response.result)
+        for size in [0, snapshot.count - 1, snapshot.count + 1, RemoteWireProtocol.maximumSnapshotJSONBytes + 1] {
+            let decoded = try JSONDecoder().decode(RemoteRPCResponse.self, from: JSONSerialization.data(withJSONObject: [
+                "result": compressed.base64EncodedString(),
+                "uncompressedSnapshotBytes": size,
+            ]))
+            XCTAssertThrowsError(try decoded.decodedResult()) { error in
+                XCTAssertEqual(error as? RemoteWireContractError, .malformedPayload)
+            }
+        }
+    }
+
     func testIrohPairingContractsRoundTrip() throws {
         let expiry = Date(timeIntervalSince1970: 2_000)
         let endpoint = RemoteIrohEndpointAddress(

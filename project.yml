@@ -4,10 +4,8 @@ options:
   deploymentTarget:
     iOS: "17.0"
 packages:
-  RepoPromptRemoteProtocol:
-    path: Packages/RepoPromptRemoteProtocol
-  RepoPromptIrohTransport:
-    path: Packages/RepoPromptIrohTransport
+  RepoPromptRemoteNetworking:
+    path: .
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa.git
     exactVersion: 9.35.0
@@ -40,8 +38,7 @@ targets:
     resources:
       - path: Sources/RepoPromptRemote/Assets.xcassets
     dependencies:
-      - package: RepoPromptRemoteProtocol
-      - package: RepoPromptIrohTransport
+      - package: RepoPromptRemoteNetworking
       - package: Sentry
     settings:
       base:
@@ -64,6 +61,7 @@ targets:
       - path: Tests/RepoPromptRemoteTests
     dependencies:
       - target: RepoPromptRemote
+      - package: RepoPromptRemoteNetworking
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.repoprompt.remote.tests

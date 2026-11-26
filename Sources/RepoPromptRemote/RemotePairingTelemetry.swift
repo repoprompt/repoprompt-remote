@@ -1,3 +1,4 @@
+import RepoPromptRemoteNetworking
 import Foundation
 import RepoPromptIrohTransport
 import RepoPromptRemoteProtocol

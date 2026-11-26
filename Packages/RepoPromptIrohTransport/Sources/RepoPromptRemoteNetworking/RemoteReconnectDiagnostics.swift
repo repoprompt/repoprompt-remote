@@ -2,14 +2,14 @@ import Foundation
 import RepoPromptIrohTransport
 import RepoPromptRemoteProtocol
 
-enum RemoteReconnectDiagnostics {
-    static let historyLimit = 30
-    static let historyKey = "RepoPromptRemote.reconnectHistory"
+public enum RemoteReconnectDiagnostics {
+    public static let historyLimit = 30
+    public static let historyKey = "RepoPromptRemote.reconnectHistory"
 
-    enum Network: String, Codable {
+    public enum Network: String, Codable {
         case wifi, cellular, ethernet, other, offline, unknown
 
-        init(interface: String) {
+        public init(interface: String) {
             switch interface {
             case "wifi": self = .wifi
             case "cellular": self = .cellular
@@ -20,7 +20,7 @@ enum RemoteReconnectDiagnostics {
         }
     }
 
-    enum Stage: String, Codable {
+    public enum Stage: String, Codable {
         case localIdentity = "local_identity"
         case binding
         case endpointStartup = "endpoint_startup"
@@ -31,11 +31,11 @@ enum RemoteReconnectDiagnostics {
         case syncConfirmation = "sync_confirmation"
     }
 
-    enum Outcome: String, Codable {
+    public enum Outcome: String, Codable {
         case connected, failed, cancelled
     }
 
-    enum Reason: String, Codable {
+    public enum Reason: String, Codable {
         case networkChanged = "network_changed"
         case cancelled
         case bindingUnavailable = "binding_unavailable"
@@ -56,9 +56,8 @@ enum RemoteReconnectDiagnostics {
         case transportError = "transport_error"
         case operationFailed = "operation_failed"
 
-        init(error: Error, stage: Stage) {
+        public init(error: Error, stage: Stage) {
             switch error {
-            case is RemoteIrohIdentityStoreError: self = .keychainUnavailable
             case RemoteIrohTransportError.bindingUnavailable: self = .bindingUnavailable
             case RemoteIrohTransportError.localIdentityChanged: self = .identityChanged
             case RemoteIrohTransportError.serverEndpointMismatch: self = .peerMismatch
@@ -73,7 +72,7 @@ enum RemoteReconnectDiagnostics {
                 case "no endpoint addresses satisfy the connection policy": self = .missingRoutes
                 case "timed out waiting for relay registration": self = .relayRegistrationTimeout
                 case "timed out connecting endpoint": self = .dialTimeout
-                case "frame I/O timed out", "response frame I/O timed out": self = .frameTimeout
+                case _ where RemoteNetwork.isFrameTimeout(error): self = .frameTimeout
                 case let message where message.hasPrefix("decode endpoint address:"): self = .invalidAddress
                 default:
                     switch stage {
@@ -87,47 +86,49 @@ enum RemoteReconnectDiagnostics {
         }
     }
 
-    struct Timing: Codable {
-        let stage: Stage
-        let milliseconds: Int
+    public struct Timing: Codable {
+        public let stage: Stage
+        public let milliseconds: Int
     }
 
-    struct Entry: Codable {
-        let startedAt: Date
-        let network: Network
-        let endingNetwork: Network
-        let networkChanged: Bool
-        let attempt: Int
-        let elapsedMilliseconds: Int
-        let recoveryMilliseconds: Int
-        let stage: Stage
-        let timings: [Timing]
-        let outcome: Outcome
-        let reason: Reason?
-        let savedRelayHint: Bool?
-        let localRelayHint: Bool?
-        let route: RemoteIrohPathKind?
-        let snapshotBytes: Int?
+    public struct Entry: Codable {
+        public let startedAt: Date
+        public let network: Network
+        public let endingNetwork: Network
+        public let networkChanged: Bool
+        public let attempt: Int
+        public let elapsedMilliseconds: Int
+        public let recoveryMilliseconds: Int
+        public let stage: Stage
+        public let timings: [Timing]
+        public let outcome: Outcome
+        public let reason: Reason?
+        public let savedRelayHint: Bool?
+        public let localRelayHint: Bool?
+        public let route: RemoteIrohPathKind?
+        public let snapshotBytes: Int?
     }
 
-    struct Attempt {
-        let startedAt = Date()
-        let start = ContinuousClock.now
-        private(set) var stage: Stage = .localIdentity
+    public struct Attempt {
+        public init() {}
+
+        public let startedAt = Date()
+        public let start = ContinuousClock.now
+        public private(set) var stage: Stage = .localIdentity
         private var stageStart = ContinuousClock.now
         private var timings: [Timing] = []
-        var savedRelayHint: Bool?
-        var localRelayHint: Bool?
-        var snapshotBytes: Int?
+        public var savedRelayHint: Bool?
+        public var localRelayHint: Bool?
+        public var snapshotBytes: Int?
 
-        mutating func enter(_ next: Stage) {
+        public mutating func enter(_ next: Stage) {
             let now = ContinuousClock.now
             timings.append(Timing(stage: stage, milliseconds: milliseconds(stageStart.duration(to: now))))
             stage = next
             stageStart = now
         }
 
-        func finish(
+        public func finish(
             network: Network,
             endingNetwork: Network,
             networkChanged: Bool,
@@ -154,7 +155,7 @@ enum RemoteReconnectDiagnostics {
         }
     }
 
-    static func relayHint(in addressJSON: String?) -> Bool? {
+    public static func relayHint(in addressJSON: String?) -> Bool? {
         guard let addressJSON, addressJSON.utf8.count <= 16_384,
               let address = try? JSONSerialization.jsonObject(with: Data(addressJSON.utf8)) as? [String: Any],
               let addresses = address["addrs"] as? [Any]
@@ -162,37 +163,15 @@ enum RemoteReconnectDiagnostics {
         return addresses.contains { ($0 as? [String: Any])?["Relay"] is String }
     }
 
-    static func append(_ entry: Entry, to history: [Entry]) -> [Entry] {
+    public static func append(_ entry: Entry, to history: [Entry]) -> [Entry] {
         Array((history + [entry]).suffix(historyLimit))
     }
 
-    static func report(_ history: [Entry]) -> String? {
+    public static func report(_ history: [Entry]) -> String? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(history) else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-}
-
-
-/// A single recovery clock survives repeated path updates and manual retry requests.
-struct RemoteConnectionBackoff {
-    private(set) var nextAttempt: ContinuousClock.Instant?
-    private var failures = 0
-
-    mutating func started(at now: ContinuousClock.Instant) {
-        nextAttempt = now.advanced(by: .seconds(2))
-    }
-
-    mutating func connected() {
-        failures = 0
-    }
-
-    mutating func failed(at now: ContinuousClock.Instant) {
-        let delay = pow(2.0, Double(failures)) * Double.random(in: 0.8 ... 1.2)
-        failures = min(failures + 1, 4)
-        let retry = now.advanced(by: .seconds(delay))
-        nextAttempt = max(nextAttempt ?? retry, retry)
     }
 }

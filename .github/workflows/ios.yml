@@ -11,32 +11,6 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
-      - name: Read tested desktop repository and revision
-        id: desktop
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, re
-          with open("desktop-compatibility.json") as manifest:
-              compatibility = json.load(manifest)
-          repository = compatibility["desktop_repository"]
-          revision = compatibility["desktop_revision"]
-          assert re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "Expected a GitHub repository name"
-          assert re.fullmatch(r"[0-9a-f]{40}", revision), "Expected a full desktop commit SHA"
-          print(f"repository={repository}")
-          print(f"revision={revision}")
-          PY
-      - name: Check out the desktop Remote contract
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ steps.desktop.outputs.repository }}
-          ref: ${{ steps.desktop.outputs.revision }}
-          path: .desktop-contract
-          persist-credentials: false
-          sparse-checkout: |
-            Sources/RepoPromptRemoteProtocol
-            Tests/RepoPromptRemoteProtocolTests/Fixtures
-      - name: Check desktop and iOS contract parity
-        run: python3 Scripts/check-desktop-compatibility.py .desktop-contract
       - name: Test shared protocol
         run: swift test --package-path Packages/RepoPromptRemoteProtocol
 
@@ -64,7 +38,7 @@ jobs:
           git diff --exit-code --
           Packages/RepoPromptIrohTransport/Sources/RepoPromptIrohTransport/IrohTransportBindings.swift
       - name: Test Swift bridge
-        run: swift test --package-path Packages/RepoPromptIrohTransport
+        run: swift test --filter IrohTransportTests
       - name: Upload generated Iroh XCFramework
         uses: actions/upload-artifact@v7
         with:

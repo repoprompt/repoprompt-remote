@@ -1,3 +1,4 @@
+import RepoPromptRemoteNetworking
 import Foundation
 import RepoPromptIrohTransport
 @testable import RepoPromptRemote
@@ -110,6 +111,99 @@ final class RemoteIrohFoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testLegacyDesktopPairingSurvivesFirstSnapshotLossAndRestart() async throws {
+        let attempt = recoveryAttempt(supportsConfirmation: nil)
+        let credential = recoveryCredential(for: attempt)
+        let store = RecoveryStore(record: .preparing(attempt))
+        let failedSync = RecoveryTransport()
+        failedSync.syncFailure = RecoveryFault.disconnected
+        let first = recoveryModel(store: store, factory: .init(
+            prepare: { _, _, _, _, willSendLegacyHello in
+                try willSendLegacyHello()
+                guard case let .preparing(dispatched) = store.record else {
+                    throw RecoveryFault.unexpectedPrepare
+                }
+                XCTAssertEqual(dispatched.legacyHelloMayHaveBeenSent, true)
+                return (credential, failedSync)
+            },
+            open: { _, _, _, _ in throw RecoveryFault.disconnected }
+        ))
+        await waitForRecovery { first.connectionIssue != nil && first.isPaired }
+        XCTAssertEqual(store.record, .paired(credential))
+        XCTAssertEqual(failedSync.confirmations, [])
+        first.disconnect()
+
+        let restartedStore = try RecoveryStore(restarting: store)
+        let recovered = RecoveryTransport()
+        let restarted = recoveryModel(store: restartedStore, factory: .init(
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            open: { stored, _, _, _ in
+                XCTAssertEqual(stored, credential)
+                return recovered
+            }
+        ))
+        await waitForRecovery { restarted.connectionState == .connected }
+        XCTAssertEqual(recovered.confirmations, [])
+        XCTAssertEqual(restartedStore.record, .paired(credential))
+        restarted.disconnect()
+    }
+
+    @MainActor
+    func testLegacyReceiptSurvivesNetworkChangeBeforeFirstSync() async {
+        let attempt = recoveryAttempt(supportsConfirmation: nil)
+        let credential = recoveryCredential(for: attempt)
+        let store = RecoveryStore(record: .preparing(attempt))
+        let oldPath = RecoveryTransport()
+        let newPath = RecoveryTransport()
+        var deliverReceipt: CheckedContinuation<Void, Never>?
+        let model = recoveryModel(store: store, factory: .init(
+            prepare: { _, _, _, _, willSendLegacyHello in
+                try willSendLegacyHello()
+                await withCheckedContinuation { deliverReceipt = $0 }
+                return (credential, oldPath)
+            },
+            open: { stored, _, _, _ in
+                XCTAssertEqual(stored, credential)
+                return newPath
+            }
+        ))
+        model.observeNetworkPath(.satisfied, interface: "wifi")
+        await waitForRecovery { deliverReceipt != nil }
+        XCTAssertFalse(model.canCancelPendingPairing)
+        model.observeNetworkPath(.unsatisfied, interface: "unknown")
+        await waitForRecovery { model.networkStatus == "Offline" }
+        deliverReceipt?.resume()
+        await waitForRecovery { oldPath.wasClosed }
+        XCTAssertEqual(store.record, .paired(credential))
+        XCTAssertNil(model.snapshot)
+
+        model.observeNetworkPath(.satisfied, interface: "cellular")
+        await waitForRecovery(timeout: .seconds(4)) { model.connectionState == .connected }
+        XCTAssertEqual(newPath.confirmations, [])
+        XCTAssertEqual(store.record, .paired(credential))
+        model.disconnect()
+    }
+
+    @MainActor
+    func testInterruptedLegacyHelloShowsRecoveryWithoutResendingTheCode() async throws {
+        var attempt = recoveryAttempt(supportsConfirmation: nil)
+        attempt.legacyHelloMayHaveBeenSent = true
+        let saved = try RecoveryStore(restarting: RecoveryStore(record: .preparing(attempt)))
+        let model = recoveryModel(store: saved, factory: .init(
+            prepare: { _, _, _, _, _ in
+                XCTFail("A legacy QR may have been consumed before the phone restarted")
+                throw RecoveryFault.unexpectedPrepare
+            },
+            open: { _, _, _, _ in throw RecoveryFault.disconnected }
+        ))
+        await waitForRecovery { model.connectionIssue != nil }
+        XCTAssertNil(saved.record)
+        XCTAssertEqual(model.connectionState, .unpaired)
+        XCTAssertTrue(model.connectionIssue?.contains("may have accepted the code") == true)
+        model.disconnect()
+    }
+
+    @MainActor
     func testFailedKeychainSaveNeverConfirmsAndRestartResumesTheSameAttempt() async throws {
         let attempt = recoveryAttempt()
         let credential = recoveryCredential(for: attempt)
@@ -117,7 +211,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         store.failNextSave = true
         let transport = RecoveryTransport()
         let factory = RemoteAppModel.ConnectionFactory(
-            prepare: { suppliedAttempt, _, _, _ in
+            prepare: { suppliedAttempt, _, _, _, _ in
                 XCTAssertEqual(suppliedAttempt, attempt)
                 return (credential, transport)
             },
@@ -149,7 +243,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         let lostAck = RecoveryTransport()
         lostAck.onConfirm = { _ in throw RecoveryFault.disconnected }
         let first = recoveryModel(store: store, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { _, _, _, _ in lostAck }
         ))
         await waitForRecovery { first.connectionIssue != nil }
@@ -164,7 +258,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         let ready = RecoveryTransport()
         var opens = 0
         let restarted = recoveryModel(store: restartedStore, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { _, _, _, _ in
                 opens += 1
                 return opens == 1 ? failedSync : ready
@@ -190,7 +284,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         var dials = 0
         let ready = RecoveryTransport()
         let model = recoveryModel(store: store, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { _, _, _, diagnostics in
                 diagnostics.enter(.endpointStartup)
                 diagnostics.enter(.dial)
@@ -253,7 +347,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         var dialStarts: [ContinuousClock.Instant] = []
         var finishFirstDial: CheckedContinuation<Void, Never>?
         let model = recoveryModel(store: store, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { stored, _, _, diagnostics in
                 XCTAssertEqual(stored, credential)
                 diagnostics.enter(.dial)
@@ -300,13 +394,42 @@ final class RemoteIrohFoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testUsableHandoffKeepsAuthenticatedFirstSnapshotInFlight() async {
+        let credential = recoveryCredential(for: recoveryAttempt())
+        let store = RecoveryStore(record: .paired(credential))
+        let transport = RecoveryTransport()
+        var releaseSnapshot: CheckedContinuation<Void, Never>?
+        transport.beforeSnapshot = { await withCheckedContinuation { releaseSnapshot = $0 } }
+        var dials = 0
+        let model = recoveryModel(store: store, factory: .init(
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            open: { _, _, _, _ in
+                dials += 1
+                return transport
+            }
+        ))
+        model.observeNetworkPath(.satisfied, interface: "wifi")
+        await waitForRecovery { releaseSnapshot != nil }
+        model.observeNetworkPath(.satisfied, interface: "cellular")
+        await waitForRecovery { model.networkStatus == "Online (cellular)" }
+        XCTAssertEqual(dials, 1)
+        XCTAssertFalse(transport.wasClosed)
+        releaseSnapshot?.resume()
+        await waitForRecovery { model.connectionState == .connected }
+        XCTAssertEqual(model.reconnectHistory.last?.endingNetwork, .cellular)
+        XCTAssertEqual(model.reconnectHistory.last?.networkChanged, true)
+        XCTAssertEqual(store.record, .paired(credential))
+        model.disconnect()
+    }
+
+    @MainActor
     func testSyncConfirmationTimeoutReportsItsOwnStageAndKeepsPhoneOffline() async {
         let credential = recoveryCredential(for: recoveryAttempt())
         let store = RecoveryStore(record: .paired(credential))
         let transport = RecoveryTransport()
         transport.syncConfirmationFailure = TransportError.Failure("frame I/O timed out")
         let model = recoveryModel(store: store, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { _, _, _, _ in transport }
         ))
 
@@ -328,7 +451,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         let recovered = RecoveryTransport()
         var dials = 0
         let model = recoveryModel(store: store, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { _, _, _, _ in
                 dials += 1
                 if dials == 1 { return initial }
@@ -352,7 +475,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         var firstSync: CheckedContinuation<Void, Never>?
         late.beforeSnapshot = { await withCheckedContinuation { firstSync = $0 } }
         let model = recoveryModel(store: store, factory: .init(
-            prepare: { _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
+            prepare: { _, _, _, _, _ in throw RecoveryFault.unexpectedPrepare },
             open: { _, _, _, _ in late }
         ))
         await waitForRecovery { firstSync != nil }
@@ -387,9 +510,11 @@ final class RemoteIrohFoundationTests: XCTestCase {
         )
     }
 
-    private func recoveryAttempt() -> StoredRemotePairingAttempt {
+    private func recoveryAttempt(supportsConfirmation: Bool? = true) -> StoredRemotePairingAttempt {
         .init(
-            id: UUID(), advertisement: makeIrohCode(expiresAt: Date().addingTimeInterval(300)),
+            id: UUID(), advertisement: makeIrohCode(
+                expiresAt: Date().addingTimeInterval(300), supportsConfirmation: supportsConfirmation
+            ),
             localEndpointID: endpointID("b")
         )
     }
@@ -600,7 +725,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         XCTAssertEqual(order, ["local", "remote"])
     }
 
-    private func makeIrohCode(expiresAt: Date) -> RemoteIrohPairingAdvertisement {
+    private func makeIrohCode(expiresAt: Date, supportsConfirmation: Bool? = nil) -> RemoteIrohPairingAdvertisement {
         RemoteIrohPairingAdvertisement(
             desktopInstanceID: "desktop",
             server: RemoteIrohEndpointAddress(
@@ -610,7 +735,8 @@ final class RemoteIrohFoundationTests: XCTestCase {
                 transportAddressJSON: "{}"
             ),
             oneTimeSecret: "one-time-secret",
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            requiresPairingConfirmation: supportsConfirmation
         )
     }
 

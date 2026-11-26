@@ -28,7 +28,10 @@ RepoPrompt Remote is a control surface—not a second agent runtime and not a ne
 | RepoPrompt Remote for iOS | This repository | Displays desktop state and sends authorized controls to the paired Mac. |
 | Shared Swift protocol | [`Packages/RepoPromptRemoteProtocol`](Packages/RepoPromptRemoteProtocol) | Defines the Foundation-only snapshots, events, commands, and compatibility rules used by both apps. |
 
-The tested desktop revision is pinned in [`desktop-compatibility.json`](desktop-compatibility.json), along with the upstream CE commit it incorporates. The desktop vendors the same Swift protocol sources so it can build independently. This repository's CI compares both copies and their compatibility fixtures at that revision. Keep the repositories next to one another for local integration checks:
+This repository owns the shared `RepoPromptRemoteNetworking` Swift package.
+The iOS target uses it from this checkout, and RepoPrompt CE pins its revision.
+`desktop-compatibility.json` records a previous desktop baseline for mixed-version
+testing. Use a tested desktop checkout for local device integration.
 
 ```text
 <parent>/
@@ -138,16 +141,17 @@ swift test --package-path Packages/RepoPromptRemoteProtocol
 npm --prefix relay test
 ```
 
-When updating the desktop fork from `RepoPrompt/repoprompt-ce`, merge upstream into the Remote integration in an isolated checkout, resolve the Remote adapters against the current Agent Mode APIs, and run the desktop Remote tests and product build. Then check the standalone contract copies and run the iOS test target:
+When updating the desktop fork from `RepoPrompt/repoprompt-ce`, merge upstream into the Remote integration in an isolated checkout, resolve the Remote adapters against the current Agent Mode APIs, and run the desktop Remote tests and product build. Then run the canonical contract suite and the iOS test target:
 
 ```sh
-python3 Scripts/check-desktop-compatibility.py ../repoprompt-ce
+# Run the canonical wire compatibility suite from this checkout.
+swift test --package-path Packages/RepoPromptRemoteProtocol
 xcodebuild -project RepoPromptRemote.xcodeproj -scheme RepoPromptRemote \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
   CODE_SIGNING_ALLOWED=NO test
 ```
 
-Pass a different desktop checkout path when using a worktree. The parity check fails on changed, added, or removed Swift contract files and JSON fixtures; it does not replace desktop compilation or paired-device acceptance. Update `desktop-compatibility.json` to the tested desktop commit when delivering a coordinated update.
+Pass a different desktop checkout path when using a worktree. Both applications build against the same contract source. Desktop compilation and paired-device acceptance verify the integration. Update `desktop-compatibility.json` to the tested desktop commit when delivering a coordinated update.
 
 The CI workflow also generates the Xcode project and runs the app's unit tests on an available iOS Simulator.
 
