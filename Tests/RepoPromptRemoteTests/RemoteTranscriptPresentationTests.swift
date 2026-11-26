@@ -124,6 +124,45 @@ final class RemoteTranscriptPresentationTests: XCTestCase {
         }
     }
 
+    func testRecordedQuestionPreviewShowsChoicesAndSuppressesToolStatusSummary() {
+        let recorded = item(kind: .activity, role: "tool", tool: "mcp__RepoPrompt__ask_user",
+                            status: "success", text: "Color: Blue · Shape: Square")
+        let old = item(kind: .activity, role: "tool", tool: "ask_user", status: "success",
+                       text: "ask_user • success")
+        XCTAssertEqual(RemoteTranscriptPresentation.semanticKind(for: recorded), .question)
+        XCTAssertEqual(RemoteTranscriptPresentation.recordedQuestionPreview(for: recorded), "Color: Blue · Shape: Square")
+        XCTAssertNil(RemoteTranscriptPresentation.recordedQuestionPreview(for: old))
+    }
+
+    func testRecordedQuestionsRenderAsCardsEvenWithAssistantClassification() {
+        let recorded = item(kind: .conclusion, role: "assistant", semantic: .assistantAnswer,
+                            tool: "mcp__RepoPrompt__ask_user", status: "success", text: "Blue")
+        let preamble = item(kind: .activity, role: "assistant", semantic: .assistantPreamble,
+                            tool: "ask_user", status: "success", text: "Q1: Pill · Q2: Sidebar")
+        let reply = item(kind: .conclusion, role: "assistant", semantic: .assistantAnswer,
+                         text: "Both answers came through.")
+
+        XCTAssertEqual(RemoteTranscriptPresentation.elements(from: [recorded, preamble, reply]), [
+            .activityGroup([recorded], exceptional: true),
+            .activityGroup([preamble], exceptional: true),
+            .narrative(reply, .assistantAnswer)
+        ])
+    }
+
+    func testTypedDiffSummaryIsVisibleInItsOwnCardBeforeDetailsLoad() {
+        let summary = RemoteTranscriptDiffSummary(fileCount: 2, additions: 15, deletions: 3)
+        let diff = item(kind: .activity, role: "tool", semantic: .compactActivity, tool: "git",
+                        status: "success", diffSummary: summary)
+        let read = item(kind: .activity, role: "tool", tool: "read_file", status: "success")
+
+        XCTAssertEqual(RemoteTranscriptPresentation.diffSummaryText(summary), "2 files  +15 −3")
+        XCTAssertEqual(RemoteTranscriptPresentation.elements(from: [diff, read]), [
+            .activityGroup([diff], exceptional: false),
+            .activityGroup([read], exceptional: false)
+        ])
+        XCTAssertNil(diff.detail)
+    }
+
     func testMarkdownParserSeparatesHeadingsParagraphsAndLists() {
         let markdown = """
         # Status
@@ -259,7 +298,9 @@ final class RemoteTranscriptPresentationTests: XCTestCase {
         role: String,
         semantic: RemoteTranscriptSemanticKind? = nil,
         tool: String? = nil,
-        status: String? = nil
+        status: String? = nil,
+        text: String = "Visible text",
+        diffSummary: RemoteTranscriptDiffSummary? = nil
     ) -> RemoteTranscriptItem {
         RemoteTranscriptItem(
             id: UUID(),
@@ -269,10 +310,11 @@ final class RemoteTranscriptPresentationTests: XCTestCase {
             kind: kind,
             semanticKind: semantic,
             role: role,
-            text: "Visible text",
+            text: text,
             toolName: tool,
             toolStatus: status,
-            detailAvailable: tool != nil
+            detailAvailable: tool != nil,
+            diffSummary: diffSummary
         )
     }
 }

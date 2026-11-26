@@ -378,7 +378,35 @@ enum RemoteMarkdownDocumentParser {
 }
 
 enum RemoteTranscriptPresentation {
+    static func isAskUserTool(_ name: String?) -> Bool {
+        let suffix = name?.lowercased().split(separator: ".").last?.components(separatedBy: "__").last
+        return switch suffix {
+        case "ask_user", "ask_user_question", "askuserquestion": true
+        default: false
+        }
+    }
+
+    static func recordedQuestionPreview(for item: RemoteTranscriptItem) -> String? {
+        guard let text = item.text, !text.isEmpty else { return nil }
+        let parts = text.components(separatedBy: " • ")
+        if parts.count == 2, isAskUserTool(parts[0]), parts[1] == item.toolStatus {
+            return nil
+        }
+        return text
+    }
+
+    static func diffSummaryText(_ summary: RemoteTranscriptDiffSummary) -> String {
+        let title = summary.singleFilePath ?? (summary.fileCount == 1 ? "1 file" : "\(summary.fileCount) files")
+        var text = title
+        if let additions = summary.additions, let deletions = summary.deletions {
+            text += "  +\(additions) −\(deletions)"
+        }
+        if summary.isTruncated { text += " · Partial" }
+        return text
+    }
+
     static func semanticKind(for item: RemoteTranscriptItem) -> RemoteTranscriptSemanticKind {
+        if isAskUserTool(item.toolName), item.semanticKind != .error { return .question }
         if let semanticKind = item.semanticKind { return semanticKind }
         switch item.kind {
         case .request:
@@ -408,9 +436,10 @@ enum RemoteTranscriptPresentation {
             let semantic = semanticKind(for: item)
             switch semantic {
             case .compactActivity:
-                if isExceptionalActivity(item) {
+                let exceptional = isExceptionalActivity(item)
+                if item.diffSummary != nil || exceptional {
                     flushOrdinary()
-                    result.append(.activityGroup([item], exceptional: true))
+                    result.append(.activityGroup([item], exceptional: exceptional))
                 } else {
                     ordinaryActivity.append(item)
                 }

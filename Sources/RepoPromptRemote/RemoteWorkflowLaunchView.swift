@@ -40,6 +40,7 @@ struct RemoteWorkflowLaunchView: View {
     let onCancel: () -> Void
 
     @State private var selectedWorkflowID: String?
+    @State private var interviewFirst = false
     @State private var showsAllWorkflows = false
     @State private var workflowCardHeight: CGFloat = 0
 
@@ -69,6 +70,8 @@ struct RemoteWorkflowLaunchView: View {
                     Text("What are we building?")
                         .font(.largeTitle.bold())
                 }
+
+                interviewOption
 
                 if orderedWorkflows.isEmpty {
                     fallbackCard
@@ -101,7 +104,7 @@ struct RemoteWorkflowLaunchView: View {
         .scrollDismissesKeyboard(.interactively)
         .remoteChatComposer(
             workspaceID: workspace.workspaceID,
-            destination: .newChat(workflowID: selectedWorkflowID)
+            destination: .newChat(workflowID: selectedWorkflowID, interviewFirst: interviewFirst)
         )
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -118,6 +121,24 @@ struct RemoteWorkflowLaunchView: View {
                 in: catalog
             )
         }
+    }
+
+    private var interviewOption: some View {
+        Toggle(isOn: $interviewFirst) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Interview first")
+                    .font(.headline)
+                Text("Ask clarifying questions before starting work.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .controlSize(.small)
+        .tint(Color.remoteWarmOrange)
+        .disabled(!model.canControlChat)
+        .padding(14)
+        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
     }
 
     private var fallbackCard: some View {
