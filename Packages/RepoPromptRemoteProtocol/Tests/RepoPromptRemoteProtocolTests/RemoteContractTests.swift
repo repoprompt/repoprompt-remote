@@ -19,6 +19,7 @@ final class RemoteContractTests: XCTestCase {
             RemoteInteractionSummary.self, from: JSONEncoder().encode(legacy)
         )
         XCTAssertNil(decoded.responseUnavailableReason)
+        XCTAssertNil(decoded.questionnaire)
         let current = RemoteInteractionSummary(
             id: legacy.id, kind: legacy.kind, title: legacy.title, prompt: legacy.prompt,
             responseUnavailableReason: "Review hook trust on your Mac.", createdAt: legacy.createdAt
@@ -26,6 +27,66 @@ final class RemoteContractTests: XCTestCase {
         let data = try JSONEncoder().encode(current)
         XCTAssertEqual(try JSONDecoder().decode(RemoteInteractionSummary.self, from: data), current)
         XCTAssertEqual(try JSONDecoder().decode(LegacyInteraction.self, from: data), legacy)
+    }
+
+    func testQuestionnaireAndTransientAnswersUseSeparateWirePayloads() throws {
+        let field = RemoteQuestionField(
+            id: "code", header: "Code", prompt: "Enter your code",
+            isSecret: true, allowsCustom: true
+        )
+        let interaction = RemoteInteractionSummary(
+            id: UUID().uuidString, kind: .secretInput, requiresSecureEntry: true,
+            questionnaire: RemoteQuestionnaire(context: "Verification", questions: [field])
+        )
+        let command = RemoteCommandRequest(
+            operation: .respond, interactionID: UUID(uuidString: interaction.id),
+            questionAnswers: [field.id: .init(text: "example-response")]
+        )
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let interactionData = try encoder.encode(interaction)
+        XCTAssertEqual(try decoder.decode(RemoteInteractionSummary.self, from: interactionData), interaction)
+        XCTAssertFalse(String(decoding: interactionData, as: UTF8.self).contains("example-response"))
+        XCTAssertEqual(try decoder.decode(RemoteCommandRequest.self, from: encoder.encode(command)), command)
+    }
+
+    func testQuestionFieldChecksSelectionsCustomTextAndSkip() {
+        let single = RemoteQuestionField(
+            id: "choice", prompt: "Which option?", options: [.init(label: "First"), .init(label: "Second")],
+            allowsCustom: true, allowsSkip: true
+        )
+        XCTAssertTrue(single.accepts(.init(selectedOptionIndices: [0])))
+        XCTAssertTrue(single.accepts(.init(text: "Another option")))
+        XCTAssertTrue(single.accepts(.init(skipped: true)))
+        XCTAssertFalse(single.accepts(.init(selectedOptionIndices: [0], text: "Another option")))
+        XCTAssertFalse(single.accepts(.init(selectedOptionIndices: [1, 0])))
+        XCTAssertFalse(single.accepts(.init(selectedOptionIndices: [-1])))
+        XCTAssertFalse(single.accepts(.init(text: "   ")))
+        XCTAssertFalse(single.accepts(.init(selectedOptionIndices: [1], skipped: true)))
+
+        let multiple = RemoteQuestionField(
+            id: "choice", prompt: "Which options?", options: single.options,
+            allowsMultiple: true, allowsCustom: true
+        )
+        XCTAssertTrue(multiple.accepts(.init(selectedOptionIndices: [1, 0], text: "Another option")))
+        XCTAssertFalse(multiple.accepts(.init(selectedOptionIndices: [0, 0])))
+        XCTAssertFalse(multiple.accepts(.init(skipped: true)))
+    }
+
+    func testStartRunRoundTripsInterviewOptInWithWorkflowAndModel() throws {
+        let request = RemoteCommandRequest(
+            operation: .startRun, message: "Draft a plan", agentID: "codexExec",
+            modelID: "test-model", reasoningEffort: "high", workflowID: "plan",
+            interviewFirst: true
+        )
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(RemoteCommandRequest.self, from: encoder.encode(request)), request)
+
+        let standardStart = RemoteCommandRequest(operation: .startRun, message: "Draft a plan")
+        let standardData = try encoder.encode(standardStart)
+        XCTAssertNil(try decoder.decode(RemoteCommandRequest.self, from: standardData).interviewFirst)
     }
 
     func testProtocolCompatibilityAcceptsCurrentVersionOnly() {

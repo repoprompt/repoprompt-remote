@@ -229,6 +229,13 @@ struct RemoteChatView: View {
             .onChange(of: runNoticeState) { _, _ in
                 followLatest(using: proxy)
             }
+            .onChange(of: session?.pendingInteraction?.id) { _, interactionID in
+                if interactionID != nil {
+                    if follow.receive(.newActivity) { followLatest(using: proxy) }
+                } else {
+                    followLatest(using: proxy)
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     Color.clear
@@ -851,6 +858,7 @@ struct RemoteMarkdownText: View {
 private struct RemoteCodeBlock: View {
     let language: String?
     let code: String
+    var isDiff = false
     @State private var copied = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -875,10 +883,7 @@ private struct RemoteCodeBlock: View {
                 let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(typeSize))
                 let size = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: traits).pointSize
                 RemoteSelectableText(
-                    content: NSAttributedString(string: code, attributes: [
-                        .font: UIFont.monospacedSystemFont(ofSize: size, weight: .regular),
-                        .foregroundColor: UIColor.label
-                    ]),
+                    content: attributedCode(size: size),
                     wraps: false
                 )
             }
@@ -887,6 +892,30 @@ private struct RemoteCodeBlock: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 9))
         .onChange(of: code) { _, _ in copied = false }
+    }
+
+    private func attributedCode(size: CGFloat) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: code, attributes: [
+            .font: UIFont.monospacedSystemFont(ofSize: size, weight: .regular),
+            .foregroundColor: UIColor.label
+        ])
+        guard isDiff else { return result }
+        var location = 0
+        for line in code.components(separatedBy: "\n") {
+            let length = line.utf16.count
+            let color: UIColor = if line.hasPrefix("+++ ") || line.hasPrefix("--- ") || line.hasPrefix("@@") {
+                .secondaryLabel
+            } else if line.hasPrefix("+") {
+                .systemGreen
+            } else if line.hasPrefix("-") {
+                .systemRed
+            } else {
+                .label
+            }
+            result.addAttribute(.foregroundColor, value: color, range: NSRange(location: location, length: length))
+            location += length + 1
+        }
+        return result
     }
 }
 
@@ -1093,11 +1122,23 @@ private struct RemoteActivityGroupView: View {
 
     private var accent: Color { exceptional ? .remoteFailure : .secondary }
 
+    private var singleTool: RemoteTranscriptItem? {
+        guard items.count == 1, let first = items.first, RemoteToolCardKind(first.toolName) != nil else { return nil }
+        return first
+    }
+
+    private var singleToolKind: RemoteToolCardKind? { RemoteToolCardKind(singleTool?.toolName) }
+
+    private var expanded: Bool {
+        singleTool.map { expandedDetailIDs.contains($0.id) } ?? isExpanded
+    }
+
     private var aggregateStatus: RemoteToolActivityState? {
         RemoteToolActivityState.aggregate(items)
     }
 
     private var title: String {
+        if let singleToolKind { return singleToolKind.title }
         if exceptional {
             let semantic = items.first.map(RemoteTranscriptPresentation.semanticKind(for:))
             switch semantic {
@@ -1115,16 +1156,23 @@ private struct RemoteActivityGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: onToggleGroup) {
+            Button {
+                if let singleTool { onToggleDetails(singleTool) }
+                else { onToggleGroup() }
+            } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: exceptional ? "exclamationmark.triangle.fill" : "wrench.and.screwdriver")
+                    Image(systemName: singleToolKind?.icon ?? (exceptional ? "exclamationmark.triangle.fill" : "wrench.and.screwdriver"))
                         .font(.caption.weight(.bold))
                         .foregroundStyle(accent)
                         .frame(width: 28, height: 28)
                         .background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.footnote.weight(.semibold))
-                        if !toolNames.isEmpty, toolNames != [title] {
+                        if let singleTool, let singleToolKind {
+                            if let summary = singleToolKind.summary(for: singleTool), !summary.isEmpty {
+                                Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        } else if !toolNames.isEmpty, toolNames != [title] {
                             Text(toolNames.prefix(3).joined(separator: " · "))
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
@@ -1140,16 +1188,26 @@ private struct RemoteActivityGroupView: View {
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(aggregateStatus.tint)
                         }
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.secondary)
+                        if singleTool.map(\.canExpandToolDetails) ?? true {
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .padding(10)
             }
             .buttonStyle(.plain)
+            .disabled(singleTool.map { !$0.canExpandToolDetails } ?? false)
 
-            if isExpanded {
+            if let singleTool {
+                if expanded {
+                    RemoteActivityDetailsView(item: singleTool, onLoadDetails: { onLoadDetails(singleTool) })
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
+                }
+                RemoteTranscriptAttachments(sessionID: sessionID, item: singleTool)
+            } else if expanded {
                 VStack(spacing: 8) {
                     ForEach(items) { item in
                         RemoteActivityItemView(
@@ -1172,8 +1230,13 @@ private struct RemoteActivityGroupView: View {
     }
 }
 
+private extension RemoteTranscriptItem {
+    var canExpandToolDetails: Bool {
+        detailAvailable || detail != nil || detailText?.isEmpty == false
+    }
+}
+
 private struct RemoteActivityItemView: View {
-    @EnvironmentObject private var model: RemoteAppModel
     let sessionID: UUID
     let item: RemoteTranscriptItem
     let isExpanded: Bool
@@ -1181,7 +1244,7 @@ private struct RemoteActivityItemView: View {
     let onLoadDetails: () -> Void
 
     private var state: RemoteToolActivityState? { RemoteToolActivityState(item) }
-    private var hasDetails: Bool { item.detail != nil || item.detailText?.isEmpty == false }
+    private var kind: RemoteToolCardKind? { RemoteToolCardKind(item.toolName) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1193,14 +1256,16 @@ private struct RemoteActivityItemView: View {
                         .accessibilityLabel(state.label)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.toolName ?? item.role.replacingOccurrences(of: "_", with: " ").capitalized)
-                        .font(.caption.monospaced().weight(.semibold))
-                    if let text = item.text, !text.isEmpty {
+                    Text(kind?.title ?? item.toolName ?? item.role.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .font(.caption.weight(.semibold))
+                    if let kind, let summary = kind.summary(for: item) {
+                        Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    } else if kind == nil, let text = item.text, !text.isEmpty {
                         RemoteMarkdownText(markdown: text, textStyle: .caption1, textColor: .secondaryLabel)
                     }
                 }
                 Spacer()
-                if item.detailAvailable || hasDetails {
+                if item.canExpandToolDetails {
                     Button(action: onToggleDetails) {
                         Image(systemName: isExpanded ? "eye.slash" : "info.circle")
                     }
@@ -1210,24 +1275,35 @@ private struct RemoteActivityItemView: View {
             }
             RemoteTranscriptAttachments(sessionID: sessionID, item: item)
             if isExpanded {
-                if let detail = item.detail {
-                    RemoteToolDetails(detail: detail, showsSummary: item.text == nil)
-                } else if let text = item.detailText, !text.isEmpty {
-                    RemoteCodeBlock(language: nil, code: text)
-                } else {
-                    switch model.transcriptDetailStates[item.id] {
-                    case .failed?:
-                        Button("Retry loading details", action: onLoadDetails).font(.caption)
-                    case .loaded?:
-                        Text("No additional details").font(.caption).foregroundStyle(.secondary)
-                    default:
-                        ProgressView("Loading details…").font(.caption)
-                    }
-                }
+                RemoteActivityDetailsView(item: item, onLoadDetails: onLoadDetails)
             }
         }
         .padding(9)
         .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct RemoteActivityDetailsView: View {
+    @EnvironmentObject private var model: RemoteAppModel
+    let item: RemoteTranscriptItem
+    let onLoadDetails: () -> Void
+
+    var body: some View {
+        if let detail = item.detail {
+            RemoteToolDetails(detail: detail, kind: RemoteToolCardKind(item.toolName),
+                              showsSummary: item.text == nil, summaryOnly: item.summaryOnly)
+        } else if let text = item.detailText, !text.isEmpty {
+            RemoteCodeBlock(language: nil, code: text)
+        } else {
+            switch model.transcriptDetailStates[item.id] {
+            case .failed?:
+                Button("Retry loading details", action: onLoadDetails).font(.caption)
+            case .loaded?:
+                Text("No additional details").font(.caption).foregroundStyle(.secondary)
+            default:
+                ProgressView("Loading details…").font(.caption)
+            }
+        }
     }
 }
 
@@ -1256,19 +1332,35 @@ private extension RemoteToolActivityState {
 
 private struct RemoteToolDetails: View {
     let detail: RemoteTranscriptDetail
+    let kind: RemoteToolCardKind?
     let showsSummary: Bool
+    let summaryOnly: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showsSummary, let summary = detail.summaryText {
                 RemoteMarkdownText(markdown: summary, textStyle: .caption1)
             }
-            payload("Arguments", detail.argumentsJSON)
-            payload("Result", detail.resultJSON)
-            if !detail.keyPaths.isEmpty {
-                RemoteCodeBlock(language: "Files", code: detail.keyPaths.joined(separator: "\n"))
+            if let kind, let presentation = RemoteToolDetailPresentation(kind: kind, detail: detail, summaryOnly: summaryOnly) {
+                if !presentation.metadata.isEmpty || presentation.isPartial {
+                    let metadata = presentation.metadata + (presentation.isPartial ? ["Partial result"] : [])
+                    Text(metadata.joined(separator: " · ")).foregroundStyle(.secondary)
+                }
+                ForEach(presentation.sections.indices, id: \.self) { index in
+                    let section = presentation.sections[index]
+                    RemoteCodeBlock(language: section.title, code: section.text, isDiff: section.isDiff)
+                }
+                if let exitCode = presentation.exitCode {
+                    LabeledContent("Exit code", value: String(exitCode))
+                }
+            } else {
+                payload("Arguments", detail.argumentsJSON)
+                payload("Result", detail.resultJSON)
+                if !detail.keyPaths.isEmpty {
+                    RemoteCodeBlock(language: "Files", code: detail.keyPaths.joined(separator: "\n"))
+                }
+                if let exitCode = detail.exitCode { LabeledContent("Exit code", value: String(exitCode)) }
             }
-            if let exitCode = detail.exitCode { LabeledContent("Exit code", value: String(exitCode)) }
             if let processID = detail.processID { LabeledContent("Process", value: processID) }
             if let thinking = detail.reasoning, !thinking.isEmpty {
                 Text("Reasoning").font(.caption.weight(.semibold))
@@ -1310,6 +1402,7 @@ struct RemoteChatComposer: View {
 
     @FocusState private var isInputFocused: Bool
     @State private var message = ""
+    @State private var interviewFirst = false
     @StateObject private var attachments = RemoteAttachmentDraft()
     @State private var pendingSend: (id: UUID, draft: String)?
     @State private var pendingCancelID: UUID?
@@ -1376,6 +1469,16 @@ struct RemoteChatComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if case .newChat = destination {
+                Toggle(isOn: $interviewFirst) {
+                    Label("Interview first", systemImage: "bubble.left.and.bubble.right")
+                        .font(.subheadline.weight(.medium))
+                }
+                .controlSize(.small)
+                .tint(Color.remoteWarmOrange)
+                .disabled(!model.canControlChat || pendingCommandID != nil)
+                .accessibilityHint("Ask clarifying questions before starting work.")
+            }
             if policy.isInteractionBlocking {
                 Label("Respond to the request above", systemImage: "arrow.up")
                     .font(.caption.weight(.semibold))
@@ -1471,6 +1574,7 @@ struct RemoteChatComposer: View {
                 if completion.outcome == .accepted {
                     if message == pendingSend.draft { message = "" }
                     attachments.clear()
+                    interviewFirst = false
                 }
             }
             if activity.completion(for: pendingCancelID) != nil { pendingCancelID = nil }
@@ -1530,6 +1634,7 @@ struct RemoteChatComposer: View {
                 agentID: selection?.agentID,
                 modelID: selection?.modelID,
                 reasoningEffort: selection?.reasoningEffort,
+                interviewFirst: interviewFirst,
                 attachments: attachments.files
             )
         case let .session(sessionID, runState):

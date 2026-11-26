@@ -23,6 +23,53 @@ final class RemoteTranscriptPresentationTests: XCTestCase {
         )
     }
 
+    func testReadAndSearchResultsShowContentsAndRanges() throws {
+        let read = try XCTUnwrap(RemoteToolDetailPresentation(
+            kind: .read,
+            detail: .init(resultJSON: #"{"structuredContent":{"display_path":"Sources/A.swift","first_line":4,"last_line":6,"content":"let value = 4"}}"#),
+            summaryOnly: false
+        ))
+        XCTAssertEqual(read.metadata, ["Lines 4–6"])
+        XCTAssertEqual(read.sections.map(\.text), ["Sources/A.swift", "let value = 4"])
+        let search = try XCTUnwrap(RemoteToolDetailPresentation(
+            kind: .search,
+            detail: .init(
+                argumentsJSON: #"{"pattern":"value"}"#,
+                resultJSON: #"{"total_matches":1,"size_limit_hit":true,"content_match_groups":[{"path":"Sources/A.swift","lines":[{"line_number":4,"line_text":"let value = 4"}]}]}"#
+            ),
+            summaryOnly: false
+        ))
+        XCTAssertEqual(search.metadata, ["1 match"])
+        XCTAssertEqual(search.sections.map(\.text), ["value", "Sources/A.swift:4: let value = 4"])
+        XCTAssertTrue(search.isPartial)
+    }
+
+    func testShellResultShowsCommandOutputAndExitCode() throws {
+        XCTAssertEqual(RemoteToolCardKind("functions.exec_command"), .shell)
+        let shell = try XCTUnwrap(RemoteToolDetailPresentation(
+            kind: .shell,
+            detail: .init(resultJSON: #"{"command":"swift build","status":"failed","aggregatedOutput":"Build failed","exitCode":1}"#),
+            summaryOnly: false
+        ))
+        XCTAssertEqual(shell.sections.map(\.text), ["swift build", "Build failed"])
+        XCTAssertEqual(shell.exitCode, 1)
+    }
+
+    func testEditResultShowsPerFileDiffAndFallsBackOnTruncatedJSON() throws {
+        let patch = try XCTUnwrap(RemoteToolDetailPresentation(
+            kind: .edit,
+            detail: .init(resultJSON: #"{"changes":[{"path":"Sources/A.swift","diff":"--- a/A.swift\n+++ b/A.swift\n@@ -1 +1 @@\n-old\n+new"}]}"#),
+            summaryOnly: false
+        ))
+        XCTAssertEqual(patch.metadata, ["+1 −1 lines"])
+        XCTAssertEqual(patch.sections.first?.title, "Sources/A.swift")
+        XCTAssertEqual(patch.sections.first?.isDiff, true)
+        XCTAssertNil(RemoteToolDetailPresentation(
+            kind: .edit, detail: .init(resultJSON: #"{"changes":["#), summaryOnly: true
+        ))
+        XCTAssertNil(RemoteToolCardKind("unknown_external_tool"))
+    }
+
     func testOrdinaryActivityGroupsBetweenNarrativeRows() {
         let request = item(kind: .request, role: "user", semantic: .userRequest)
         let firstTool = item(kind: .activity, role: "tool", semantic: .compactActivity, tool: "read_file")
