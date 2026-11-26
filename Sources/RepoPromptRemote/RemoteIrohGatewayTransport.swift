@@ -454,7 +454,11 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
             kind: .rpcRequest,
             messageID: messageID,
             sessionID: sessionID,
-            encoding: RemoteRPCRequest(operation: operation, payload: payload)
+            encoding: RemoteRPCRequest(
+                operation: operation,
+                payload: payload,
+                acceptsCompressedSnapshot: operation == .snapshot ? true : nil
+            )
         )
         let frame = try await send(request)
         guard frame.messageID == messageID else { throw RemoteIrohTransportError.unexpectedFrame }
@@ -471,9 +475,12 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         _ type: Response.Type, response: RemoteRPCResponse
     ) throws -> Response {
         if let error = response.error { throw Self.remoteError(error) }
-        guard let result = response.result else { throw RemoteGatewayError.invalidResponse }
-        do { return try decoder.decode(Response.self, from: result) }
-        catch { throw RemoteGatewayError.invalidResponse }
+        do {
+            guard let result = try response.decodedResult() else { throw RemoteGatewayError.invalidResponse }
+            return try decoder.decode(Response.self, from: result)
+        } catch {
+            throw RemoteGatewayError.invalidResponse
+        }
     }
 
     private func send(_ frame: RemoteWireFrame) async throws -> RemoteWireFrame {

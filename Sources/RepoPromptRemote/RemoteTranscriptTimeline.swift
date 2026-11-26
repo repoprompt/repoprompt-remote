@@ -154,7 +154,8 @@ struct RemoteTranscriptTimelineState: Equatable {
             detailAvailable: detailedItem.detailAvailable,
             detailText: detailedItem.detailText,
             detail: detailedItem.detail,
-            attachments: detailedItem.attachments ?? current.attachments
+            attachments: detailedItem.attachments ?? current.attachments,
+            diffSummary: current.diffSummary ?? detailedItem.diffSummary
         )
         if resort { orderedItems = Self.sorted(Array(itemsByID.values)) }
     }
@@ -170,6 +171,7 @@ struct RemoteTranscriptTimelineState: Equatable {
             if let cached = itemsByID[item.id],
                cached.text == item.text, cached.toolStatus == item.toolStatus,
                cached.detailAvailable == item.detailAvailable,
+               cached.diffSummary == item.diffSummary,
                cached.attachments?.map(\.id) == item.attachments?.map(\.id),
                cached.detail != nil || cached.detailText != nil
             {
