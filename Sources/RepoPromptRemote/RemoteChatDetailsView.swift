@@ -27,6 +27,8 @@ struct RemoteChatDetailsView: View {
     var body: some View {
         NavigationStack {
             List {
+                RemoteConnectionSection()
+
                 Section("Run") {
                     HStack(spacing: 10) {
                         RemoteRunStateBadge(state: session.runState)
@@ -132,6 +134,48 @@ struct RemoteChatDetailsView: View {
             Label(target?.title ?? relationship, systemImage: icon)
         }
         .disabled(target == nil)
+    }
+}
+
+/// The paired Mac and its connection state, shown at the top of the details sheet.
+struct RemoteConnectionSection: View {
+    @EnvironmentObject private var model: RemoteAppModel
+
+    private var color: Color {
+        if model.connectionState == .connected { return .green }
+        return model.isRecovering ? .yellow : .red
+    }
+
+    var body: some View {
+        Section("Mac") {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                Text(model.snapshot?.desktop.displayName ?? "Paired Mac")
+                Spacer(minLength: 12)
+                Text(model.pairingProgress ?? model.connectionStatusLabel)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            if let lastSyncAt = model.lastSyncAt {
+                LabeledContent("Last sync") {
+                    Text(lastSyncAt, format: .dateTime.month().day().hour().minute())
+                }
+            }
+            if model.connectionState != .connected {
+                if let issue = model.connectionIssue {
+                    Text(issue)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if !model.isRecovering {
+                    Button("Reconnect", action: model.retryConnection)
+                }
+            }
+        }
     }
 }
 

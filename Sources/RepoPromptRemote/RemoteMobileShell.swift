@@ -99,24 +99,24 @@ struct RemoteMobileShell: View {
                         .accessibilityLabel("Open projects and chats")
                         .accessibilityFocused($drawerFocus, equals: .openButton)
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        HStack(spacing: 12) {
-                            connectionIndicator
-                            if !showingWorkflowLaunch {
-                                if let session = model.sessions.first(where: { $0.id == selectedSessionID }) {
-                                    Button { showingChatDetails = true } label: {
-                                        Image(systemName: "info.circle")
-                                    }
-                                    .accessibilityLabel("Chat details, \(session.status)")
-                                }
-                                Button(action: openWorkflowLaunch) {
-                                    Image(systemName: "square.and.pencil")
-                                        .font(.body.weight(.semibold))
-                                        .frame(width: 32, height: 32, alignment: .center)
-                                }
-                                .accessibilityLabel("New session")
-                                .disabled(selectedWorkspace == nil)
+                    ToolbarItem(placement: .principal) {
+                        Button(action: openDetails) {
+                            RemoteNavigationStatusHeader(
+                                title: navigationTitle,
+                                status: connectionTitle,
+                                color: connectionColor
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(detailsSession == nil ? "Shows connection details" : "Shows chat details and connection")
+                    }
+                    if !showingWorkflowLaunch {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(action: openWorkflowLaunch) {
+                                Image(systemName: "square.and.pencil")
                             }
+                            .accessibilityLabel("New session")
+                            .disabled(selectedWorkspace == nil)
                         }
                     }
                 }
@@ -138,6 +138,11 @@ struct RemoteMobileShell: View {
         }
         .sheet(isPresented: $showingSettings) {
             PermissionsView().environmentObject(model)
+        }
+        .sheet(isPresented: $showingConnectionDetails) {
+            RemoteConnectionDetailsView()
+                .environmentObject(model)
+                .presentationDetents([.height(RemoteConnectionDetailsView.compactHeight), .medium])
         }
         .sheet(isPresented: $showingChatDetails) {
             if let session = model.sessions.first(where: { $0.id == selectedSessionID }) {
@@ -283,6 +288,20 @@ struct RemoteMobileShell: View {
         model.setVisibleSessionID(selectedSessionID)
     }
 
+    /// The session whose details the title opens; nil while launching a workflow or with no chat selected.
+    private var detailsSession: SessionRow? {
+        guard !showingWorkflowLaunch else { return nil }
+        return model.sessions.first(where: { $0.id == selectedSessionID })
+    }
+
+    private func openDetails() {
+        if detailsSession != nil {
+            showingChatDetails = true
+        } else {
+            showingConnectionDetails = true
+        }
+    }
+
     private func openDrawer() { setDrawerOpen(true) }
 
     private func closeDrawer() { setDrawerOpen(false) }
@@ -304,47 +323,35 @@ struct RemoteMobileShell: View {
         return .red
     }
 
-    private var connectionIndicator: some View {
-        Button {
-            showingConnectionDetails = true
-        } label: {
-            Circle()
-                .fill(connectionColor)
-                .frame(width: 9, height: 9)
-                .frame(width: 32, height: 44)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel("Connection status")
-        .accessibilityValue(connectionTitle)
-        .accessibilityHint("Shows connection details")
-        .popover(isPresented: $showingConnectionDetails) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(connectionColor)
-                        .frame(width: 8, height: 8)
-                        .accessibilityHidden(true)
-                    Text(connectionTitle).font(.subheadline.weight(.semibold))
-                }
-                if model.connectionState != .connected, model.snapshot != nil {
-                    Text("Showing last sync").font(.footnote).foregroundStyle(.secondary)
-                }
-                if model.connectionState != .connected {
-                    if let issue = model.connectionIssue {
-                        Text(issue).font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if !model.isRecovering {
-                        Button("Reconnect") { model.retryConnection() }.font(.footnote.weight(.medium))
-                    }
-                }
-            }
-            .padding(16)
-            .frame(idealWidth: 220, maxWidth: 260, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .presentationCompactAdaptation(.popover)
-        }
-    }
+}
 
+/// Navigation bar title with the connection state as a status line beneath it.
+struct RemoteNavigationStatusHeader: View {
+    let title: String
+    let status: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(title)
+                .font(.headline)
+                .lineLimit(1)
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                Text(status)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(status)
+    }
 }
 
 enum RemoteDrawerDrag {
@@ -716,7 +723,9 @@ private struct RemoteNavigationDrawer: View {
     }
 }
 
-private struct RemoteConnectionDetailsView: View {
+struct RemoteConnectionDetailsView: View {
+    static let compactHeight: CGFloat = 190
+
     @EnvironmentObject private var model: RemoteAppModel
     @Environment(\.dismiss) private var dismiss
 
