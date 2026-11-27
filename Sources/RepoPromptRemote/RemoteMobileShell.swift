@@ -93,6 +93,8 @@ struct RemoteMobileShell: View {
                         Button(action: openDrawer) {
                             Image(systemName: "line.3.horizontal")
                                 .font(.body.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Open projects and chats")
                         .accessibilityFocused($drawerFocus, equals: .openButton)
@@ -123,7 +125,7 @@ struct RemoteMobileShell: View {
         }
         .background {
             RemoteDrawerEdgeGesture(
-                isEnabled: !drawerIsOpen && !showingSettings && !showingChatDetails,
+                isEnabled: !drawerIsOpen && !showingSettings && !showingChatDetails && !showingConnectionDetails,
                 onDrag: { drawerDragDistance = $0 },
                 onFinish: { opens in
                     if !drawerIsOpen { setDrawerOpen(opens) }
@@ -347,20 +349,20 @@ struct RemoteMobileShell: View {
 
 enum RemoteDrawerDrag {
     static let maximumWidth: CGFloat = 350
+    static let activationWidth: CGFloat = 72
 
     static func offset(distance: CGFloat, width: CGFloat) -> CGFloat {
         min(max(distance, 0), width)
     }
 
     static func shouldOpen(distance: CGFloat, verticalDistance: CGFloat, velocity: CGFloat, width: CGFloat) -> Bool {
-        guard width > 0, distance >= 16, distance > abs(verticalDistance) else { return false }
-        let projectedDistance = distance + velocity * 0.15
-        return projectedDistance >= width * 0.4
+        guard width > 0, distance >= 12, distance > abs(verticalDistance) else { return false }
+        let projectedDistance = distance + velocity * 0.12
+        return projectedDistance >= min(width * 0.22, 64)
     }
 }
 
-/// Attach to the hosting view so touches reach scroll views and text controls
-/// normally until UIKit recognizes a deliberate pan from the screen edge.
+/// Observe a pan from the leading part of the content without covering it with a hit target.
 private struct RemoteDrawerEdgeGesture: UIViewRepresentable {
     let isEnabled: Bool
     let onDrag: (CGFloat) -> Void
@@ -375,7 +377,7 @@ private struct RemoteDrawerEdgeGesture: UIViewRepresentable {
     func updateUIView(_ view: EdgeGestureView, context: Context) {
         view.onDrag = onDrag
         view.onFinish = onFinish
-        view.edgePan.isEnabled = isEnabled
+        view.pan.isEnabled = isEnabled
     }
 
     static func dismantleUIView(_ view: EdgeGestureView, coordinator: ()) {
@@ -385,9 +387,9 @@ private struct RemoteDrawerEdgeGesture: UIViewRepresentable {
     final class EdgeGestureView: UIView, UIGestureRecognizerDelegate {
         var onDrag: ((CGFloat) -> Void)?
         var onFinish: ((Bool) -> Void)?
-        lazy var edgePan: UIScreenEdgePanGestureRecognizer = {
-            let recognizer = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-            recognizer.edges = .left
+        lazy var pan: UIPanGestureRecognizer = {
+            let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            recognizer.maximumNumberOfTouches = 1
             recognizer.delegate = self
             return recognizer
         }()
@@ -399,7 +401,7 @@ private struct RemoteDrawerEdgeGesture: UIViewRepresentable {
             var responder = next
             while let candidate = responder {
                 if let controller = candidate as? UIViewController {
-                    controller.viewIfLoaded?.addGestureRecognizer(edgePan)
+                    controller.viewIfLoaded?.addGestureRecognizer(pan)
                     return
                 }
                 responder = candidate.next
@@ -407,24 +409,39 @@ private struct RemoteDrawerEdgeGesture: UIViewRepresentable {
         }
 
         func detach() {
-            edgePan.view?.removeGestureRecognizer(edgePan)
+            pan.view?.removeGestureRecognizer(pan)
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             let point = touch.location(in: self)
-            // Stay inside the edge margin before horizontally scrollable content.
-            guard point.x <= 12, bounds.contains(point) else { return false }
+            guard bounds.contains(point), point.x < RemoteDrawerDrag.activationWidth else { return false }
             var hitView = touch.view
             while let view = hitView, view !== gestureRecognizer.view {
-                if view is UITextInput { return false }
+                if view is UITextField || (view as? UITextView)?.isEditable == true { return false }
+                if let scrollView = view as? UIScrollView, scrollsHorizontally(scrollView) { return false }
                 hitView = view.superview
             }
             return true
         }
 
         override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            let velocity = edgePan.velocity(in: edgePan.view)
-            return velocity.x > abs(velocity.y) * 1.25
+            let translation = pan.translation(in: pan.view)
+            return translation.x > abs(translation.y)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            // Let the drawer claim a rightward pull before the transcript claims a vertical scroll.
+            guard let scrollView = otherGestureRecognizer.view as? UIScrollView else { return false }
+            return otherGestureRecognizer === scrollView.panGestureRecognizer && !scrollsHorizontally(scrollView)
+        }
+
+        private func scrollsHorizontally(_ scrollView: UIScrollView) -> Bool {
+            let inset = scrollView.adjustedContentInset
+            return scrollView.isScrollEnabled && (scrollView.alwaysBounceHorizontal
+                || scrollView.contentSize.width + inset.left + inset.right > scrollView.bounds.width + 1)
         }
 
         @objc private func handlePan(_ recognizer: UIScreenEdgePanGestureRecognizer) {

@@ -537,15 +537,15 @@ final class RemoteDrawerDragTests: XCTestCase {
     }
 
     func testDeliberatePullAndFlickOpenTheDrawer() {
-        XCTAssertTrue(RemoteDrawerDrag.shouldOpen(distance: 140, verticalDistance: 8, velocity: 0, width: 350))
-        XCTAssertTrue(RemoteDrawerDrag.shouldOpen(distance: 45, verticalDistance: -4, velocity: 750, width: 350))
+        XCTAssertTrue(RemoteDrawerDrag.shouldOpen(distance: 64, verticalDistance: 18, velocity: 0, width: 350))
+        XCTAssertTrue(RemoteDrawerDrag.shouldOpen(distance: 30, verticalDistance: -4, velocity: 300, width: 350))
     }
 
     func testShortVerticalAndReversingDragsReturnTheDrawerToClosed() {
-        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 12, verticalDistance: 0, velocity: 1200, width: 350))
+        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 10, verticalDistance: 0, velocity: 1200, width: 350))
         XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 120, verticalDistance: 160, velocity: 500, width: 350))
         XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 60, verticalDistance: 8, velocity: 0, width: 350))
-        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 160, verticalDistance: 8, velocity: -250, width: 350))
+        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 80, verticalDistance: 8, velocity: -250, width: 350))
     }
 }
 
