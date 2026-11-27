@@ -6,10 +6,10 @@ struct RemoteSessionStatusPlate: View {
     private var color: Color {
         switch row.status {
         case .opening, .working: return .remoteWarmOrange
-        case .waiting: return .green
+        case .waiting: return .remoteSuccess
         case .blocked: return .remoteWarmOrange
-        case .completed: return .green
-        case .failed: return .red
+        case .completed: return .remoteSuccess
+        case .failed: return .remoteFailure
         case .unreadNarrative: return .remoteWarmOrange
         case .idle, .cancelled: return .secondary
         }

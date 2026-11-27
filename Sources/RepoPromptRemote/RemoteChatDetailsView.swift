@@ -82,7 +82,7 @@ struct RemoteChatDetailsView: View {
                 if let failure = session.failureSummary {
                     Section("Failure") {
                         Label(failure, systemImage: "exclamationmark.octagon.fill")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.remoteFailure)
                     }
                 }
 
@@ -144,13 +144,13 @@ struct RemoteRunStateBadge: View {
             case .opening, .working:
                 ProgressView().controlSize(.small).tint(Color.remoteWarmOrange)
             case .waitingForInput:
-                Image(systemName: "hand.raised.circle.fill").foregroundStyle(.green)
+                Image(systemName: "hand.raised.circle.fill").foregroundStyle(Color.remoteSuccess)
             case .blocked:
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Color.remoteWarmOrange)
             case .completed:
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.remoteSuccess)
             case .failed:
-                Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+                Image(systemName: "xmark.octagon.fill").foregroundStyle(Color.remoteFailure)
             case .cancelled:
                 Image(systemName: "xmark.circle").foregroundStyle(.secondary)
             case .idle:

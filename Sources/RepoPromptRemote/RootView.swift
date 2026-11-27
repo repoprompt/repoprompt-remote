@@ -121,9 +121,9 @@ private struct PairingStep: View {
         HStack(alignment: .top, spacing: 12) {
             Text(number)
                 .font(.caption.bold())
-                .foregroundStyle(.white)
+                .foregroundStyle(.black)
                 .frame(width: 24, height: 24)
-                .background(Color.remoteWarmOrange, in: Circle())
+                .background(Color.remoteOrangeFill, in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.bold())
                 Text(detail).font(.footnote).foregroundStyle(.secondary)

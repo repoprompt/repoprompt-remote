@@ -1,3 +1,4 @@
+import RepoPromptRemoteNetworking
 import Foundation
 
 struct RemoteUnpairAttempt {

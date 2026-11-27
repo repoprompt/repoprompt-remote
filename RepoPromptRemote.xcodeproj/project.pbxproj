@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		000C6F928DBB177D240F9339 /* RemoteReadOnlyClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 470D290AF8A140BD32DF1175 /* RemoteReadOnlyClientTests.swift */; };
-		065660F29EFF8EF308E03E09 /* RemoteIrohGatewayTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F72A0A48D1C6A72F04D89B /* RemoteIrohGatewayTransport.swift */; };
 		0DA1B56526836282FB649CEA /* RemoteGatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6E6B94165C3C59ED6A712E /* RemoteGatewayClient.swift */; };
 		1CF74E7D8B7EB166D6B41CE9 /* RemoteIrohIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4D49FCEAF613384E51D179 /* RemoteIrohIdentityStore.swift */; };
 		1DDFEF8DF134D51674495826 /* RemoteWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95947826991694030F118CFE /* RemoteWorkflowLaunchView.swift */; };
@@ -17,26 +16,26 @@
 		293ED8626CC7996DF368D834 /* RemoteIrohFoundationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BE5805AB980D68FB96809D /* RemoteIrohFoundationTests.swift */; };
 		2B0137D5CD737461F4B7CAD7 /* RemoteNotificationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903ED92338FD578C6DD3A18D /* RemoteNotificationDelegate.swift */; };
 		359A91E52C12021BB187FE45 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0EEF192A172A3699645318 /* RootView.swift */; };
+		3F18D21D47F9F16E5110473B /* RepoPromptRemoteNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = DB98CE3585FEFF9139E586E4 /* RepoPromptRemoteNetworking */; };
 		5C6B73E7B6EF8356E33D87AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2C6F2A38764CE8EF1A30C5C /* Assets.xcassets */; };
 		6064E2F909B033D4CB08305C /* RemoteTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0C3A53BDD1A546414AF4D4 /* RemoteTabView.swift */; };
 		64A559A1E0CD3B0D7E05D30C /* RemoteCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */; };
-		6A2853456826BC517B29BC35 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 4BAD712468BE8B87AA709273 /* Sentry */; };
 		6C2669FE2221F8A72818AE10 /* RemoteTranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49177B586584F009F6C5B105 /* RemoteTranscriptPresentation.swift */; };
 		6F97D4707DE71F580ACAD266 /* RemoteMobileShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD4002D9D4983164EB1FD0D /* RemoteMobileShell.swift */; };
 		7BB90B7C639FA3239901F959 /* RemoteAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04395513075E87717C94213B /* RemoteAppModel.swift */; };
 		9A89D01B1FB5B77D0C0DA5F8 /* RemoteTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBCE4DCAC948BE733BF48A48 /* RemoteTranscriptView.swift */; };
 		9D7DE4E95E4892D2D5453FE2 /* RemoteUnpairCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB452D925881CC69C7A91866 /* RemoteUnpairCoordinator.swift */; };
+		9FE7746F3045F60D704F2C07 /* RemoteAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD32A49F4538AF687DE1129 /* RemoteAppearance.swift */; };
 		A1FB73BC8F5F41CD7BE57F96 /* RemotePairingTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */; };
 		AD8C846E223E165A5114BDBC /* RemotePairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA570CB291EFFF595B985E2 /* RemotePairing.swift */; };
 		BE5B62733F425F1DD5E743CC /* RemoteInteractionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39BB706F621CCDBC66A5EF89 /* RemoteInteractionCard.swift */; };
 		C0105B52C8025271DE24B21C /* RemoteModelProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D09925835CDFE17D38F84BED /* RemoteModelProjectionTests.swift */; };
 		C5A161F78F81D871AB065F63 /* RemoteAttachmentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53671A8EB4D676B03E2D2877 /* RemoteAttachmentPicker.swift */; };
-		D00DF15172DF2E989DEACB6B /* RepoPromptIrohTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 6B84038F900779CD1A71EB2B /* RepoPromptIrohTransport */; };
+		D00DF15172DF2E989DEACB6B /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 4BAD712468BE8B87AA709273 /* Sentry */; };
 		D144F36662E90FEF7E0A6AD2 /* RemoteComposerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA02A11352F8A6D7D831BD2A /* RemoteComposerPolicy.swift */; };
-		DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 2684ACB06312048BFB9BE2AF /* RepoPromptRemoteProtocol */; };
+		DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = E9FAD3AE0F5E68C6AF231FD1 /* RepoPromptRemoteNetworking */; };
 		DF3911D75542BD3CE3DE81AE /* RemoteTranscriptTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1182B8B339DF60C8EB9DD7E5 /* RemoteTranscriptTimeline.swift */; };
 		E223C4A4048DACC2B846D1B5 /* RemoteTranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A41690A75F0A8B58EE2B740F /* RemoteTranscriptPresentationTests.swift */; };
-		F1A9C0300C50824791EBD37C /* RemoteNetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B76DFCE6CB4D4A462C8A8B /* RemoteNetworkMonitor.swift */; };
 		F881271DF2DF6EB738E63327 /* RemoteChatDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35934FE71CD397FC1E3056A7 /* RemoteChatDetailsView.swift */; };
 		FF997B6C82A0F55FE041087F /* RepoPromptRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F991FE43751DDC854D08D07 /* RepoPromptRemoteApp.swift */; };
 		FFCF150646C3FB3CFE172280 /* RemoteSessionStatusPlate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E513FA2AF090C3827A3928 /* RemoteSessionStatusPlate.swift */; };
@@ -55,10 +54,8 @@
 /* Begin PBXFileReference section */
 		04395513075E87717C94213B /* RemoteAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAppModel.swift; sourceTree = "<group>"; };
 		1182B8B339DF60C8EB9DD7E5 /* RemoteTranscriptTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTranscriptTimeline.swift; sourceTree = "<group>"; };
-		18CFB0C2699BF88A394ECA56 /* RepoPromptIrohTransport */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RepoPromptIrohTransport; path = Packages/RepoPromptIrohTransport; sourceTree = SOURCE_ROOT; };
 		1D4D49FCEAF613384E51D179 /* RemoteIrohIdentityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteIrohIdentityStore.swift; sourceTree = "<group>"; };
 		1E0EEF192A172A3699645318 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		21B76DFCE6CB4D4A462C8A8B /* RemoteNetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNetworkMonitor.swift; sourceTree = "<group>"; };
 		23BE5805AB980D68FB96809D /* RemoteIrohFoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteIrohFoundationTests.swift; sourceTree = "<group>"; };
 		35934FE71CD397FC1E3056A7 /* RemoteChatDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteChatDetailsView.swift; sourceTree = "<group>"; };
 		39BB706F621CCDBC66A5EF89 /* RemoteInteractionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractionCard.swift; sourceTree = "<group>"; };
@@ -67,9 +64,9 @@
 		53671A8EB4D676B03E2D2877 /* RemoteAttachmentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAttachmentPicker.swift; sourceTree = "<group>"; };
 		56F00D1D9CA144F589A3B128 /* RemoteSnapshotReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSnapshotReducer.swift; sourceTree = "<group>"; };
 		623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCredentialStore.swift; sourceTree = "<group>"; };
+		66D35B60C2698FD4805EE9B9 /* remote-shared-networking */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "remote-shared-networking"; path = .; sourceTree = SOURCE_ROOT; };
 		6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePairingTelemetry.swift; sourceTree = "<group>"; };
 		6F6E6B94165C3C59ED6A712E /* RemoteGatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteGatewayClient.swift; sourceTree = "<group>"; };
-		79356C783F2B9936A3B9B988 /* RepoPromptRemoteProtocol */ = {isa = PBXFileReference; lastKnownFileType = folder; name = RepoPromptRemoteProtocol; path = Packages/RepoPromptRemoteProtocol; sourceTree = SOURCE_ROOT; };
 		7F991FE43751DDC854D08D07 /* RepoPromptRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoPromptRemoteApp.swift; sourceTree = "<group>"; };
 		892148190E9B0247201AFB98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		903ED92338FD578C6DD3A18D /* RemoteNotificationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNotificationDelegate.swift; sourceTree = "<group>"; };
@@ -77,10 +74,10 @@
 		9AA570CB291EFFF595B985E2 /* RemotePairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePairing.swift; sourceTree = "<group>"; };
 		A41690A75F0A8B58EE2B740F /* RemoteTranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTranscriptPresentationTests.swift; sourceTree = "<group>"; };
 		AB452D925881CC69C7A91866 /* RemoteUnpairCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUnpairCoordinator.swift; sourceTree = "<group>"; };
-		B1F72A0A48D1C6A72F04D89B /* RemoteIrohGatewayTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteIrohGatewayTransport.swift; sourceTree = "<group>"; };
 		B2C6F2A38764CE8EF1A30C5C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CA02A11352F8A6D7D831BD2A /* RemoteComposerPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteComposerPolicy.swift; sourceTree = "<group>"; };
 		CADF2E0CE59D2AA158401B01 /* RepoPromptRemote.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RepoPromptRemote.entitlements; sourceTree = "<group>"; };
+		CFD32A49F4538AF687DE1129 /* RemoteAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAppearance.swift; sourceTree = "<group>"; };
 		D09925835CDFE17D38F84BED /* RemoteModelProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModelProjectionTests.swift; sourceTree = "<group>"; };
 		DCD4002D9D4983164EB1FD0D /* RemoteMobileShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMobileShell.swift; sourceTree = "<group>"; };
 		E0E513FA2AF090C3827A3928 /* RemoteSessionStatusPlate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionStatusPlate.swift; sourceTree = "<group>"; };
@@ -93,13 +90,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		2A72C0E598FA220DFCBE6226 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3F18D21D47F9F16E5110473B /* RepoPromptRemoteNetworking in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		7488E937C32B0471FDF4BBE5 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteProtocol in Frameworks */,
-				D00DF15172DF2E989DEACB6B /* RepoPromptIrohTransport in Frameworks */,
-				6A2853456826BC517B29BC35 /* Sentry in Frameworks */,
+				DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteNetworking in Frameworks */,
+				D00DF15172DF2E989DEACB6B /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -109,8 +113,7 @@
 		3A716B53A537807AD1F72B8E /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				18CFB0C2699BF88A394ECA56 /* RepoPromptIrohTransport */,
-				79356C783F2B9936A3B9B988 /* RepoPromptRemoteProtocol */,
+				66D35B60C2698FD4805EE9B9 /* remote-shared-networking */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -151,6 +154,7 @@
 			children = (
 				B2C6F2A38764CE8EF1A30C5C /* Assets.xcassets */,
 				892148190E9B0247201AFB98 /* Info.plist */,
+				CFD32A49F4538AF687DE1129 /* RemoteAppearance.swift */,
 				04395513075E87717C94213B /* RemoteAppModel.swift */,
 				53671A8EB4D676B03E2D2877 /* RemoteAttachmentPicker.swift */,
 				35934FE71CD397FC1E3056A7 /* RemoteChatDetailsView.swift */,
@@ -158,10 +162,8 @@
 				623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */,
 				6F6E6B94165C3C59ED6A712E /* RemoteGatewayClient.swift */,
 				39BB706F621CCDBC66A5EF89 /* RemoteInteractionCard.swift */,
-				B1F72A0A48D1C6A72F04D89B /* RemoteIrohGatewayTransport.swift */,
 				1D4D49FCEAF613384E51D179 /* RemoteIrohIdentityStore.swift */,
 				DCD4002D9D4983164EB1FD0D /* RemoteMobileShell.swift */,
-				21B76DFCE6CB4D4A462C8A8B /* RemoteNetworkMonitor.swift */,
 				903ED92338FD578C6DD3A18D /* RemoteNotificationDelegate.swift */,
 				9AA570CB291EFFF595B985E2 /* RemotePairing.swift */,
 				6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */,
@@ -191,6 +193,7 @@
 			buildConfigurationList = F637ABCC89308A8C896B3C08 /* Build configuration list for PBXNativeTarget "RepoPromptRemoteTests" */;
 			buildPhases = (
 				B8DB35CB3AA865CD0CF41C81 /* Sources */,
+				2A72C0E598FA220DFCBE6226 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -199,6 +202,7 @@
 			);
 			name = RepoPromptRemoteTests;
 			packageProductDependencies = (
+				DB98CE3585FEFF9139E586E4 /* RepoPromptRemoteNetworking */,
 			);
 			productName = RepoPromptRemoteTests;
 			productReference = FF86A5C5B4F17115DC350CBC /* RepoPromptRemoteTests.xctest */;
@@ -218,8 +222,7 @@
 			);
 			name = RepoPromptRemote;
 			packageProductDependencies = (
-				2684ACB06312048BFB9BE2AF /* RepoPromptRemoteProtocol */,
-				6B84038F900779CD1A71EB2B /* RepoPromptIrohTransport */,
+				E9FAD3AE0F5E68C6AF231FD1 /* RepoPromptRemoteNetworking */,
 				4BAD712468BE8B87AA709273 /* Sentry */,
 			);
 			productName = RepoPromptRemote;
@@ -254,8 +257,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
-				818449FB5FA5D292AE7ED02A /* XCLocalSwiftPackageReference "Packages/RepoPromptIrohTransport" */,
-				03E2CE7D2CAF60A249FA3FA6 /* XCLocalSwiftPackageReference "Packages/RepoPromptRemoteProtocol" */,
+				23726F6B3A33CCB6D8B2D42B /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 811D2DF98D7A5F6AE2E90FEF /* Products */;
@@ -285,16 +287,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				7BB90B7C639FA3239901F959 /* RemoteAppModel.swift in Sources */,
+				9FE7746F3045F60D704F2C07 /* RemoteAppearance.swift in Sources */,
 				C5A161F78F81D871AB065F63 /* RemoteAttachmentPicker.swift in Sources */,
 				F881271DF2DF6EB738E63327 /* RemoteChatDetailsView.swift in Sources */,
 				D144F36662E90FEF7E0A6AD2 /* RemoteComposerPolicy.swift in Sources */,
 				64A559A1E0CD3B0D7E05D30C /* RemoteCredentialStore.swift in Sources */,
 				0DA1B56526836282FB649CEA /* RemoteGatewayClient.swift in Sources */,
 				BE5B62733F425F1DD5E743CC /* RemoteInteractionCard.swift in Sources */,
-				065660F29EFF8EF308E03E09 /* RemoteIrohGatewayTransport.swift in Sources */,
 				1CF74E7D8B7EB166D6B41CE9 /* RemoteIrohIdentityStore.swift in Sources */,
 				6F97D4707DE71F580ACAD266 /* RemoteMobileShell.swift in Sources */,
-				F1A9C0300C50824791EBD37C /* RemoteNetworkMonitor.swift in Sources */,
 				2B0137D5CD737461F4B7CAD7 /* RemoteNotificationDelegate.swift in Sources */,
 				AD8C846E223E165A5114BDBC /* RemotePairing.swift in Sources */,
 				A1FB73BC8F5F41CD7BE57F96 /* RemotePairingTelemetry.swift in Sources */,
@@ -570,13 +571,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		03E2CE7D2CAF60A249FA3FA6 /* XCLocalSwiftPackageReference "Packages/RepoPromptRemoteProtocol" */ = {
+		23726F6B3A33CCB6D8B2D42B /* XCLocalSwiftPackageReference "." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/RepoPromptRemoteProtocol;
-		};
-		818449FB5FA5D292AE7ED02A /* XCLocalSwiftPackageReference "Packages/RepoPromptIrohTransport" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/RepoPromptIrohTransport;
+			relativePath = .;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -592,18 +589,18 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		2684ACB06312048BFB9BE2AF /* RepoPromptRemoteProtocol */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = RepoPromptRemoteProtocol;
-		};
 		4BAD712468BE8B87AA709273 /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
 		};
-		6B84038F900779CD1A71EB2B /* RepoPromptIrohTransport */ = {
+		DB98CE3585FEFF9139E586E4 /* RepoPromptRemoteNetworking */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = RepoPromptIrohTransport;
+			productName = RepoPromptRemoteNetworking;
+		};
+		E9FAD3AE0F5E68C6AF231FD1 /* RepoPromptRemoteNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RepoPromptRemoteNetworking;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,17 +1,16 @@
 import Foundation
 import OSLog
-import RepoPromptIrohTransport
 import RepoPromptRemoteProtocol
 
 /// Typed production client over authenticated Iroh QUIC streams. Each RPC is
 /// one bounded bidirectional stream; ordered events use framed replay polling
 /// from the reducer cursor so disconnects and stale cursors retain the same
 /// authoritative recovery after a reconnect.
-final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Sendable {
+public final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Sendable {
     private static let unpairLogger = Logger(subsystem: "com.repoprompt.remote", category: "Unpair")
 
-    private let endpoint: TransportEndpoint
-    private let connection: TransportConnection
+    private let endpoint: RemoteNetworkEndpoint
+    private let connection: RemoteNetworkConnection
     private let desktopInstanceID: String
     private let deviceID: String
     private let credential: String
@@ -21,15 +20,15 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
     private let lock = NSLock()
     private var isClosed = false
     private var sessionID: UUID?
-    private(set) var refreshedServerAddress: RemoteIrohEndpointAddress?
+    public private(set) var refreshedServerAddress: RemoteIrohEndpointAddress?
 
-    var irohPath: RemoteIrohPathKind? {
-        Self.pathKind(from: connection.pathSummary())
+    public var irohPath: RemoteIrohPathKind? {
+        connection.path
     }
 
     private init(
-        endpoint: TransportEndpoint,
-        connection: TransportConnection,
+        endpoint: RemoteNetworkEndpoint,
+        connection: RemoteNetworkConnection,
         desktopInstanceID: String,
         deviceID: String,
         credential: String,
@@ -43,16 +42,19 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         self.expectedServerEndpointID = expectedServerEndpointID
     }
 
-    static func endpointID(for identitySecret: Data) throws -> String {
-        try endpointIdForSecret(secretKey: identitySecret)
+    public static func endpointID(for identitySecret: Data) throws -> String {
+        try RemoteNetwork.endpointID(for: identitySecret)
     }
 
-    static func connect(
+    public static func connect(
         stored: StoredRemoteCredential,
         identitySecret: Data,
         generation: UInt64
     ) async throws -> RemoteIrohGatewayTransport {
-        let transport = try await open(stored: stored, identitySecret: identitySecret, generation: generation)
+        var diagnostics = RemoteReconnectDiagnostics.Attempt()
+        let transport = try await open(
+            stored: stored, identitySecret: identitySecret, generation: generation, diagnostics: &diagnostics
+        )
         do {
             try await transport.authenticate()
             return transport
@@ -62,12 +64,16 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         }
     }
 
-    static func open(
+    public static func open(
         stored: StoredRemoteCredential,
         identitySecret: Data,
-        generation: UInt64
+        generation: UInt64,
+        diagnostics: inout RemoteReconnectDiagnostics.Attempt
     ) async throws -> RemoteIrohGatewayTransport {
+        diagnostics.enter(.binding)
         let binding = stored.irohBinding
+        diagnostics.savedRelayHint = RemoteReconnectDiagnostics.relayHint(in: binding.serverAddress.transportAddressJSON)
+            ?? (binding.serverAddress.relayURL == nil ? nil : true)
         guard binding.wireVersion == RemoteWireProtocol.currentVersion,
               let addressJSON = binding.serverAddress.transportAddressJSON,
               binding.serverAddress.endpointID == binding.expectedDesktopEndpointID
@@ -77,20 +83,16 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         guard try endpointID(for: identitySecret) == binding.localMobileEndpointID else {
             throw RemoteIrohTransportError.localIdentityChanged
         }
-        let endpoint = try await RepoPromptIrohSpike.startApplication(
+        diagnostics.enter(.endpointStartup)
+        let endpoint = try await RemoteNetworkEndpoint.start(
             secret: identitySecret,
             relayEnabled: true,
             generation: generation
         )
         do {
-            let connection = try await dial(
-                endpoint: endpoint,
-                addressJSON: addressJSON
-            )
-            guard connection.peerEndpointId() == binding.expectedDesktopEndpointID else {
-                connection.close()
-                throw RemoteIrohTransportError.serverEndpointMismatch
-            }
+            diagnostics.enter(.dial)
+            let connection = try await endpoint.connect(addressJSON: addressJSON, expectedPeerID: binding.expectedDesktopEndpointID)
+            diagnostics.localRelayHint = RemoteReconnectDiagnostics.relayHint(in: try? endpoint.currentAddress().transportAddressJSON)
             return RemoteIrohGatewayTransport(
                 endpoint: endpoint,
                 connection: connection,
@@ -100,62 +102,54 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
                 expectedServerEndpointID: binding.expectedDesktopEndpointID
             )
         } catch {
+            diagnostics.localRelayHint = RemoteReconnectDiagnostics.relayHint(in: try? endpoint.currentAddress().transportAddressJSON)
             try? await endpoint.shutdown()
+            if case RemoteNetworkError.peerMismatch = error {
+                throw RemoteIrohTransportError.serverEndpointMismatch
+            }
             throw error
         }
     }
 
-    static func preparePairing(
+    public static func preparePairing(
         attempt: StoredRemotePairingAttempt,
         identitySecret: Data,
         generation: UInt64,
-        deviceName: String
+        deviceName: String,
+        willSendLegacyHello: @MainActor () throws -> Void
     ) async throws -> (StoredRemoteCredential, RemoteIrohGatewayTransport) {
         let advertisement = attempt.advertisement
-        guard advertisement.requiresPairingConfirmation == true else {
-            throw RemoteIrohTransportError.confirmationUnavailable
-        }
+        let attemptID = advertisement.requiresPairingConfirmation == true ? attempt.id : nil
         guard let addressJSON = advertisement.server.transportAddressJSON else {
             throw RemoteIrohTransportError.bindingUnavailable
         }
-        let endpoint = try await RepoPromptIrohSpike.startApplication(
+        let endpoint = try await RemoteNetworkEndpoint.start(
             secret: identitySecret,
             relayEnabled: true,
             generation: generation
         )
         do {
-            let localEndpointID = try endpoint.snapshot().endpointId
+            let localEndpointID = try endpoint.currentAddress().endpointID
             guard localEndpointID == attempt.localEndpointID else {
                 throw RemoteIrohTransportError.localIdentityChanged
             }
-            let connection = try await dial(
-                endpoint: endpoint,
-                addressJSON: addressJSON
-            )
-            guard connection.peerEndpointId() == advertisement.server.endpointID else {
-                connection.close()
-                throw RemoteIrohTransportError.serverEndpointMismatch
-            }
+            let connection = try await endpoint.connect(addressJSON: addressJSON, expectedPeerID: advertisement.server.endpointID)
             let request = RemoteIrohPairingRequest(
                 desktopInstanceID: advertisement.desktopInstanceID,
                 expectedServerEndpointID: advertisement.server.endpointID,
                 clientEndpointID: localEndpointID,
                 oneTimeSecret: advertisement.oneTimeSecret,
                 deviceName: deviceName,
-                attemptID: attempt.id
+                attemptID: attemptID
             )
             let hello = try RemoteWireFrame(
-                kind: .pairingPrepare,
+                kind: attemptID == nil ? .pairingHello : .pairingPrepare,
                 messageID: UUID(),
                 encoding: RemotePairingHello(request: request)
             )
             try Task.checkCancellation()
-            let responseFrame = try await send(
-                hello,
-                over: connection,
-                encoder: JSONEncoder(),
-                decoder: JSONDecoder()
-            )
+            if attemptID == nil { try await willSendLegacyHello() }
+            let responseFrame = try await connection.exchange(hello)
             guard responseFrame.messageID == hello.messageID else {
                 throw RemoteIrohTransportError.unexpectedFrame
             }
@@ -171,7 +165,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
             else {
                 throw RemoteIrohTransportError.serverEndpointMismatch
             }
-            guard response.attemptID == attempt.id,
+            guard response.attemptID == attemptID,
                   response.pairingResponse.desktop.instanceID == advertisement.desktopInstanceID
             else { throw RemoteIrohTransportError.unexpectedFrame }
 
@@ -196,11 +190,14 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
             return (stored, transport)
         } catch {
             try? await endpoint.shutdown()
+            if case RemoteNetworkError.peerMismatch = error {
+                throw RemoteIrohTransportError.serverEndpointMismatch
+            }
             throw error
         }
     }
 
-    func confirmPairing(attemptID: UUID) async throws {
+    public func confirmPairing(attemptID: UUID) async throws {
         let request = try RemoteWireFrame(
             kind: .pairingConfirm,
             messageID: UUID(),
@@ -214,7 +211,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         }
     }
 
-    func unpair() async throws {
+    public func unpair() async throws {
         Self.unpairLogger.info("Sending framed Iroh Unpair RPC")
         let response: RemoteUnpairResponse = try await rpc(.unpair)
         Self.unpairLogger.info("Received framed Iroh Unpair response")
@@ -223,12 +220,13 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         }
     }
 
-    func snapshot() async throws -> RemoteSnapshot {
+    public func snapshot() async throws -> RemoteSnapshot {
         try await rpc(.snapshot)
     }
 
-    func firstSnapshot() async throws -> RemoteSnapshot {
+    public func firstSnapshot(diagnostics: inout RemoteReconnectDiagnostics.Attempt) async throws -> RemoteSnapshot {
         let response = try await rpcResponse(.snapshot)
+        diagnostics.snapshotBytes = response.uncompressedSnapshotBytes ?? response.result?.count
         let snapshot = try decodeRPCResult(RemoteSnapshot.self, response: response)
         guard RemoteProtocol.supports(snapshot.protocolVersion) else {
             throw RemoteGatewayError.protocolMismatch(snapshot.protocolVersion)
@@ -237,6 +235,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
             throw RemoteIrohTransportError.serverEndpointMismatch
         }
         guard let sessionID else { return snapshot } // Existing pairings can connect to older Macs.
+        diagnostics.enter(.syncConfirmation)
         guard let ticket = response.syncTicket else { throw RemoteIrohTransportError.unexpectedFrame }
         let request = try RemoteWireFrame(
             kind: .syncConfirm, messageID: UUID(), sessionID: sessionID, encoding: ticket
@@ -253,43 +252,43 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         return snapshot
     }
 
-    func diagnostics() async throws -> RemoteDiagnostics {
+    public func diagnostics() async throws -> RemoteDiagnostics {
         try await rpc(.diagnostics)
     }
 
-    func workspaces() async throws -> [RemoteWorkspaceSummary] {
+    public func workspaces() async throws -> [RemoteWorkspaceSummary] {
         try await rpc(.workspaces)
     }
 
-    func sessions() async throws -> [RemoteSessionSummary] {
+    public func sessions() async throws -> [RemoteSessionSummary] {
         try await rpc(.sessions)
     }
 
-    func agents() async throws -> [RemoteAgentDescriptor] {
+    public func agents() async throws -> [RemoteAgentDescriptor] {
         try await rpc(.agents)
     }
 
-    func workflows() async throws -> [RemoteWorkflowDescriptor] {
+    public func workflows() async throws -> [RemoteWorkflowDescriptor] {
         try await rpc(.workflows)
     }
 
-    func contextBuilder(_ request: RemoteCommandRequest) async throws -> RemoteCommandResponse {
+    public func contextBuilder(_ request: RemoteCommandRequest) async throws -> RemoteCommandResponse {
         try await rpc(.contextBuilder, payload: encoder.encode(request))
     }
 
-    func command(_ request: RemoteCommandRequest) async throws -> RemoteCommandResponse {
+    public func command(_ request: RemoteCommandRequest) async throws -> RemoteCommandResponse {
         try await rpc(.command, payload: encoder.encode(request))
     }
 
-    func history(_ request: RemoteHistoryRPCRequest) async throws -> RemoteHistoryPage {
+    public func history(_ request: RemoteHistoryRPCRequest) async throws -> RemoteHistoryPage {
         try await rpc(.history, payload: encoder.encode(request))
     }
 
-    func imageAttachment(_ request: RemoteImageAttachmentRequest) async throws -> RemoteImageAttachmentChunk {
+    public func imageAttachment(_ request: RemoteImageAttachmentRequest) async throws -> RemoteImageAttachmentChunk {
         try await rpc(.imageAttachment, payload: encoder.encode(request))
     }
 
-    func transcript(
+    public func transcript(
         sessionID: UUID,
         afterSequenceIndex: Int?,
         itemID: UUID?,
@@ -309,7 +308,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         )
     }
 
-    func recentTranscript(
+    public func recentTranscript(
         sessionID: UUID,
         before cursor: RemoteTranscriptCursor?,
         limit: Int
@@ -325,7 +324,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         )
     }
 
-    func events(after cursor: UInt64) -> AsyncThrowingStream<RemoteEvent, Error> {
+    public func events(after cursor: UInt64) -> AsyncThrowingStream<RemoteEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task { [weak self] in
                 guard let self else { return continuation.finish() }
@@ -374,7 +373,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         }
     }
 
-    func close() {
+    public func close() {
         lock.lock()
         let shouldClose = !isClosed
         isClosed = true
@@ -395,14 +394,15 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         )
     }
 
-    func authenticate() async throws {
+    public func authenticate() async throws {
+        let requestID = UUID()
         let request = try RemoteWireFrame(
             kind: .authenticatedHello,
-            messageID: UUID(),
+            messageID: requestID,
             encoding: authentication
         )
         let response = try await send(request)
-        try Self.validateAuthenticationResponse(response, requestID: request.messageID)
+        try Self.validateAuthenticationResponse(response, requestID: requestID)
         let accepted = try response.decodedPayload(
             as: RemoteHelloAccepted.self,
             expectedKind: .helloAccepted
@@ -411,7 +411,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
               accepted.wireVersion == RemoteWireProtocol.currentVersion,
               accepted.desktopInstanceID == desktopInstanceID,
               accepted.serverEndpointID == expectedServerEndpointID,
-              accepted.clientEndpointID == (try endpoint.snapshot().endpointId),
+              accepted.clientEndpointID == (try endpoint.currentAddress().endpointID),
               accepted.deviceID == deviceID
         else {
             throw RemoteIrohTransportError.serverEndpointMismatch
@@ -424,7 +424,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         }
     }
 
-    static func validateAuthenticationResponse(_ response: RemoteWireFrame, requestID: UUID?) throws {
+    public static func validateAuthenticationResponse(_ response: RemoteWireFrame, requestID: UUID) throws {
         if response.messageID == nil, response.kind == .streamError,
            case RemoteGatewayError.credentialRejected = remoteError(from: response)
         {
@@ -440,12 +440,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         _ operation: RemoteRPCOperation,
         payload: Data = Data()
     ) async throws -> Response {
-        do {
-            return try decodeRPCResult(Response.self, response: await rpcResponse(operation, payload: payload))
-        } catch is TransportError where operation.canRetryRead {
-            try await Task.sleep(for: .milliseconds(250))
-            return try decodeRPCResult(Response.self, response: await rpcResponse(operation, payload: payload))
-        }
+        try decodeRPCResult(Response.self, response: await rpcResponse(operation, payload: payload))
     }
 
     private func rpcResponse(_ operation: RemoteRPCOperation, payload: Data = Data()) async throws -> RemoteRPCResponse {
@@ -460,15 +455,19 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
                 acceptsCompressedSnapshot: operation == .snapshot ? true : nil
             )
         )
-        let frame = try await send(request)
+        let frame = try await connection.exchange(request, read: operation)
         guard frame.messageID == messageID else { throw RemoteIrohTransportError.unexpectedFrame }
         guard frame.kind == .rpcResponse else {
             throw Self.remoteError(from: frame)
         }
-        return try frame.decodedPayload(
+        let response = try frame.decodedPayload(
             as: RemoteRPCResponse.self,
             expectedKind: .rpcResponse
         )
+        guard operation == .snapshot || response.uncompressedSnapshotBytes == nil else {
+            throw RemoteGatewayError.invalidResponse
+        }
+        return response
     }
 
     private func decodeRPCResult<Response: Decodable>(
@@ -484,52 +483,7 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
     }
 
     private func send(_ frame: RemoteWireFrame) async throws -> RemoteWireFrame {
-        try await Self.send(frame, over: connection, encoder: encoder, decoder: decoder)
-    }
-
-    private static func dial(
-        endpoint: TransportEndpoint,
-        addressJSON: String
-    ) async throws -> TransportConnection {
-        // Iroh can race direct paths and relays in one dial. Start discovery immediately.
-        try Task.checkCancellation()
-        let connection = try await endpoint.connectWithPolicy(
-            addressJson: addressJSON,
-            alpn: RepoPromptIrohSpike.alpn,
-            allowRelay: true,
-            localOnly: false,
-            timeoutMillis: 20_000
-        )
-        if Task.isCancelled {
-            connection.close()
-            throw CancellationError()
-        }
-        return connection
-    }
-
-    private static func send(
-        _ frame: RemoteWireFrame,
-        over connection: TransportConnection,
-        encoder: JSONEncoder,
-        decoder: JSONDecoder
-    ) async throws -> RemoteWireFrame {
-        try Task.checkCancellation()
-        let encoded = try encoder.encode(frame)
-        guard encoded.count <= RemoteWireProtocol.maximumClientFrameBytes else {
-            throw RemoteWireContractError.frameTooLarge(
-                actual: encoded.count, maximum: RemoteWireProtocol.maximumClientFrameBytes
-            )
-        }
-        let responseData = try await connection.sendFrame(payload: encoded)
-        try Task.checkCancellation()
-        guard responseData.count <= RemoteWireProtocol.maximumServerResponseFrameBytes else {
-            throw RemoteIrohTransportError.frameTooLarge
-        }
-        let response = try decoder.decode(RemoteWireFrame.self, from: responseData)
-        guard response.wireVersion == RemoteWireProtocol.currentVersion else {
-            throw RemoteWireContractError.unsupportedWireVersion(response.wireVersion)
-        }
-        return response
+        try await connection.exchange(frame)
     }
 
     private static func remoteError(from frame: RemoteWireFrame) -> Error {
@@ -553,27 +507,18 @@ final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unchecked Se
         default: RemoteGatewayError.requestRejected(error)
         }
     }
-
-    private static func pathKind(from summary: String) -> RemoteIrohPathKind {
-        let lower = summary.lowercased()
-        if lower.contains("relay") { return .relay }
-        if lower.contains("192.168.") || lower.contains("10.") || lower.contains("172.16.") {
-            return .localDirect
-        }
-        if lower.contains("direct") || lower.contains("udp") { return .internetDirect }
-        return .unknown
-    }
 }
 
-enum RemoteIrohTransportError: LocalizedError, Equatable {
+public enum RemoteIrohTransportError: LocalizedError, Equatable {
     case bindingUnavailable
     case localIdentityChanged
     case serverEndpointMismatch
     case unexpectedFrame
     case frameTooLarge
     case confirmationUnavailable
+    case legacyPairingOutcomeUnknown
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .bindingUnavailable: "The paired Mac has no usable Iroh endpoint binding."
         case .localIdentityChanged: "The phone’s pairing identity changed. Pair with the Mac again."
@@ -581,19 +526,9 @@ enum RemoteIrohTransportError: LocalizedError, Equatable {
         case .unexpectedFrame: "The Mac returned an unexpected Iroh frame."
         case .frameTooLarge: "The Mac returned an oversized Iroh frame."
         case .confirmationUnavailable:
-            "This Mac does not support confirmed pairing. Update RepoPrompt on your Mac and generate a new code."
-        }
-    }
-}
-
-
-private extension RemoteRPCOperation {
-    var canRetryRead: Bool {
-        switch self {
-        case .snapshot, .diagnostics, .workspaces, .sessions, .agents, .workflows, .history, .transcript:
-            true
-        case .unpair, .command, .contextBuilder, .imageAttachment:
-            false
+            "The Mac rejected this version of the Remote protocol."
+        case .legacyPairingOutcomeUnknown:
+            "The Mac may have accepted the code before the connection dropped."
         }
     }
 }

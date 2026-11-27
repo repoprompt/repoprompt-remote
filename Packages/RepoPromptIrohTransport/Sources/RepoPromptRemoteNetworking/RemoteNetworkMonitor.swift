@@ -1,16 +1,16 @@
 import Foundation
 import Network
 
-final class RemoteNetworkMonitor {
+public final class RemoteNetworkMonitor {
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.repoprompt.remote.network-monitor")
     private let onChange: @MainActor (NWPath.Status, String) -> Void
 
-    init(onChange: @escaping @MainActor (NWPath.Status, String) -> Void) {
+    public init(onChange: @escaping @MainActor (NWPath.Status, String) -> Void) {
         self.onChange = onChange
     }
 
-    func start() {
+    public func start() {
         monitor.pathUpdateHandler = { [onChange] path in
             let interface: String
             if path.usesInterfaceType(.wifi) {
@@ -29,7 +29,7 @@ final class RemoteNetworkMonitor {
         monitor.start(queue: queue)
     }
 
-    func stop() {
+    public func stop() {
         monitor.cancel()
     }
 }

@@ -1,9 +1,9 @@
 # RepoPrompt Iroh transport
 
-The Swift package wraps Iroh's authenticated QUIC endpoints for the Mac
-gateway and iOS app. It provides framed streams and the authenticated peer
-ID. The app owns pairing, authorization, endpoint key storage, and the
-Remote wire contract.
+The repository-root `RepoPromptRemoteNetworking` package owns the Mac
+gateway's transport and the iOS client. It provides the wire contract, framed
+QUIC streams, endpoint identity verification, route selection diagnostics and
+read recovery. The applications own authorization, Keychain access and UI.
 
 ## Pinned stack
 
@@ -31,9 +31,11 @@ Iroh authenticates the endpoint ID cryptographically, but application authorizat
 
 - Swift supplies exactly 32 secret bytes to `startEndpoint`; Rust does not generate, serialize, log, or write endpoint keys.
 - `repoprompt-remote/1` is the only ALPN used by the safe Swift convenience API.
-- Frames use a four-byte big-endian length and are rejected before body allocation above 1,048,576 bytes.
+- Frames use a four-byte big-endian length. Requests are capped at 1 MiB and responses at 8 MiB before body allocation.
 - Each connection permits at most eight active bidirectional streams; each endpoint accepts at most sixteen live connections.
-- Connect, frame I/O, and idle connections have explicit deadlines; timed-out peers are closed.
+- A response has a separate first-byte deadline, a progress deadline and a bounded size-aware transfer budget. A timed-out stream resets independently.
+- A response still draining to the peer counts as active. The application idle check can release a connection after there are no streams in flight.
+- The client can retry an eligible read on a new stream. Commands and legacy single-use pairing messages are sent once.
 - UniFFI cancellation aborts the corresponding spawned runtime task. Endpoint shutdown aborts and awaits the accept task before awaiting Iroh endpoint close; `Drop` is a final abort/close safety net.
 
 The Mac and iOS app each store their endpoint secret in Keychain.

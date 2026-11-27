@@ -275,10 +275,6 @@ struct RemoteWorkflowLaunchView: View {
 }
 
 extension Color {
-    static let remoteWarmOrange = Color(red: 0.91, green: 0.38, blue: 0.13)
-    static let remoteChatBackground = Color(red: 0.12, green: 0.12, blue: 0.115)
-    static let remoteUserBubble = Color(red: 0.25, green: 0.46, blue: 0.62)
-
     init?(remoteHex value: String?) {
         guard var value else { return nil }
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)

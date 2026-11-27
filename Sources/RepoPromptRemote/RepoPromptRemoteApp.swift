@@ -14,6 +14,7 @@ struct RepoPromptRemoteApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
+                .background { RemoteWindowAppearance() }
                 .onChange(of: scenePhase) { _, phase in
                     model.setSceneActive(phase == .active)
                 }

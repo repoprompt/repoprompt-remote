@@ -3,7 +3,7 @@ import XCTest
 
 final class RemoteTransportContractTests: XCTestCase {
     func testSnapshotCompressionIsOptInAndPreservesWireResult() throws {
-        let snapshot = Data(String(repeating: #"{"workspaceID":"workspace","status":"running"}"#, count: 10000).utf8)
+        let snapshot = Data(String(repeating: #"{"workspaceID":"workspace","status":"running"}"#, count: 10_000).utf8)
         let syncTicket = UUID()
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
@@ -41,7 +41,7 @@ final class RemoteTransportContractTests: XCTestCase {
 
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
-        let snapshot = Data(repeating: 42, count: 20000)
+        let snapshot = Data(repeating: 42, count: 20_000)
         let ticket = UUID()
         let previousRequest = PreviousRequest(operation: .snapshot, payload: Data())
         let currentRequest = try decoder.decode(RemoteRPCRequest.self, from: encoder.encode(previousRequest))
@@ -63,13 +63,13 @@ final class RemoteTransportContractTests: XCTestCase {
     }
 
     func testCompressedSnapshotRejectsMismatchedOrUnboundedOutput() throws {
-        let snapshot = Data(repeating: 42, count: 4096)
+        let snapshot = Data(repeating: 42, count: 4_096)
         let response = RemoteRPCResponse(result: snapshot, compressSnapshot: true)
         let compressed = try XCTUnwrap(response.result)
         for size in [0, snapshot.count - 1, snapshot.count + 1, RemoteWireProtocol.maximumSnapshotJSONBytes + 1] {
             let decoded = try JSONDecoder().decode(RemoteRPCResponse.self, from: JSONSerialization.data(withJSONObject: [
                 "result": compressed.base64EncodedString(),
-                "uncompressedSnapshotBytes": size
+                "uncompressedSnapshotBytes": size,
             ]))
             XCTAssertThrowsError(try decoded.decodedResult()) { error in
                 XCTAssertEqual(error as? RemoteWireContractError, .malformedPayload)
