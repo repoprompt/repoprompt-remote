@@ -370,9 +370,30 @@ struct RemoteChatView: View {
         }
     }
 
+    private var transcriptState: RemoteTranscriptPresentationState {
+        let timeline = model.transcriptTimelinesBySessionID[sessionID] ?? RemoteTranscriptTimelineState()
+        return timeline.presentationState(
+            isConnected: model.connectionState == .connected,
+            isRecovering: model.isRecovering
+        )
+    }
+
     private var emptyTranscript: some View {
         Group {
-            if case let .failed(message) = model.transcriptTimelinesBySessionID[sessionID]?.initialLoadState {
+            switch transcriptState {
+            case .messages:
+                EmptyView()
+            case .loading:
+                ProgressView("Loading conversation…")
+            case .waitingForMac:
+                ProgressView("Waiting for Mac…")
+            case .reconnect:
+                ContentUnavailableView {
+                    Label("Mac is offline", systemImage: "wifi.slash")
+                } actions: {
+                    Button("Reconnect", action: model.retryConnection)
+                }
+            case let .failed(message):
                 ContentUnavailableView {
                     Label("Conversation unavailable", systemImage: "exclamationmark.triangle")
                 } description: {
@@ -380,7 +401,7 @@ struct RemoteChatView: View {
                 } actions: {
                     Button("Retry") { model.retryTranscript(for: sessionID) }
                 }
-            } else {
+            case .empty:
                 ContentUnavailableView(
                     "No messages yet",
                     systemImage: "text.bubble",

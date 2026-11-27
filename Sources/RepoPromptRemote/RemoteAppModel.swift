@@ -179,6 +179,7 @@ final class RemoteAppModel: ObservableObject {
     @Published private(set) var lastAcceptedCommandID: UUID?
     @Published private(set) var lastAcceptedCommand: RemoteAcceptedCommand?
     @Published private(set) var snapshot: RemoteSnapshot?
+    @Published private(set) var lastSyncAt: Date?
     @Published private(set) var workspaceHistory: [String: RemoteWorkspaceHistory] = [:]
     enum TranscriptDetailState: Equatable {
         case loading
@@ -382,7 +383,7 @@ final class RemoteAppModel: ObservableObject {
 
     var connectionStatusLabel: String {
         if connectionState == .connected { return "Connected" }
-        return isRecovering ? "Reconnecting…" : "Paired · Offline"
+        return isRecovering ? "Reconnecting…" : "Offline"
     }
 
     var isCommandInFlight: Bool {
@@ -1352,6 +1353,7 @@ final class RemoteAppModel: ObservableObject {
         authority = .observe
         reducer = RemoteSnapshotReducer()
         snapshot = nil
+        lastSyncAt = nil
         chatListTask?.cancel()
         chatListTask = nil
         selectedHistoryWorkspaceID = nil
@@ -1649,6 +1651,7 @@ final class RemoteAppModel: ObservableObject {
         )
         reducer.replace(with: newSnapshot)
         snapshot = newSnapshot
+        lastSyncAt = .now
         authority = Authority(newSnapshot.authorization.defaultLevel)
         reconcileSnapshot(
             previous: previousSnapshot, current: newSnapshot, revisionEpochReset: isRevisionEpochReset
@@ -2008,6 +2011,7 @@ final class RemoteAppModel: ObservableObject {
                     switch reducer.apply(event) {
                     case .applied:
                         snapshot = reducer.snapshot
+                        lastSyncAt = .now
                         if let currentSnapshot = snapshot {
                             reconcileSnapshot(previous: previousSnapshot, current: currentSnapshot, revisionEpochReset: false)
                         }

@@ -184,7 +184,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
     }
 
     @MainActor
-    func testFailedEventPollRecoversEvenWhenTheFirstReconnectDialFails() async {
+    func testFailedEventPollRecoversEvenWhenTheFirstReconnectDialFails() async throws {
         let store = RecoveryStore(record: .paired(recoveryCredential(for: recoveryAttempt())))
         let initial = RecoveryTransport()
         let recovered = RecoveryTransport()
@@ -199,12 +199,20 @@ final class RemoteIrohFoundationTests: XCTestCase {
             }
         ))
         await waitForRecovery { model.connectionState == .connected && initial.hasEventSubscriber }
+        defer {
+            model.disconnect()
+            XCTAssertEqual(model.connectionStatusLabel, "Offline")
+        }
+        let firstSync = try XCTUnwrap(model.lastSyncAt)
+        XCTAssertEqual(model.connectionStatusLabel, "Connected")
         initial.interruptEvents()
         await waitForRecovery { model.connectionState == .disconnected }
         XCTAssertNotNil(model.snapshot)
+        XCTAssertEqual(model.lastSyncAt, firstSync)
+        XCTAssertEqual(model.connectionStatusLabel, "Reconnecting…")
         await waitForRecovery(timeout: .seconds(5)) { model.connectionState == .connected }
         XCTAssertEqual(dials, 3)
-        model.disconnect()
+        XCTAssertGreaterThan(try XCTUnwrap(model.lastSyncAt), firstSync)
     }
 
     @MainActor
@@ -223,6 +231,7 @@ final class RemoteIrohFoundationTests: XCTestCase {
         await waitForRecovery { late.wasClosed }
         XCTAssertEqual(model.connectionState, .disconnected)
         XCTAssertNil(model.snapshot)
+        XCTAssertNil(model.lastSyncAt)
     }
 
     @MainActor
