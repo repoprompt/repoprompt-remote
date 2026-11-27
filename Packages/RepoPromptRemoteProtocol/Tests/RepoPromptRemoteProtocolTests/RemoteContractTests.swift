@@ -51,6 +51,27 @@ final class RemoteContractTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(RemoteCommandRequest.self, from: encoder.encode(command)), command)
     }
 
+    func testMultipartQuestionnaireOpensDespiteLegacyFallbackMessage() throws {
+        struct PreviousClient: Decodable {
+            let responseUnavailableReason: String?
+        }
+
+        let interaction = RemoteInteractionSummary(
+            id: UUID().uuidString,
+            kind: .question,
+            questionnaire: .init(questions: [
+                .init(id: "scope", prompt: "Choose a scope", allowsCustom: true),
+                .init(id: "format", prompt: "Choose a format", allowsCustom: true)
+            ])
+        )
+        let data = try JSONEncoder().encode(interaction)
+        let previous = try JSONDecoder().decode(PreviousClient.self, from: data)
+        let current = try JSONDecoder().decode(RemoteInteractionSummary.self, from: data)
+        XCTAssertEqual(previous.responseUnavailableReason, "Answer this multi-part request on your Mac.")
+        XCTAssertNil(current.responseUnavailableReason)
+        XCTAssertEqual(current.questionnaire, interaction.questionnaire)
+    }
+
     func testQuestionFieldChecksSelectionsCustomTextAndSkip() {
         let single = RemoteQuestionField(
             id: "choice", prompt: "Which option?", options: [.init(label: "First"), .init(label: "Second")],

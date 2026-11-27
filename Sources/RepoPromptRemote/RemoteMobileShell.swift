@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import RepoPromptRemoteProtocol
 
 /// Active phone route: one conversation surface with a project/session drawer and
@@ -6,7 +7,10 @@ import RepoPromptRemoteProtocol
 /// `RemoteAppModel`; this view owns only navigation presentation.
 struct RemoteMobileShell: View {
     @EnvironmentObject private var model: RemoteAppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AccessibilityFocusState(for: .voiceOver) private var drawerFocus: RemoteDrawerFocus?
     @State private var drawerIsOpen = false
+    @State private var drawerDragDistance: CGFloat?
     @State private var selectedWorkspaceID: String?
     @State private var selectedSessionID: UUID?
     @State private var allowsInitialChatSelection = true
@@ -91,6 +95,7 @@ struct RemoteMobileShell: View {
                                 .font(.body.weight(.semibold))
                         }
                         .accessibilityLabel("Open projects and chats")
+                        .accessibilityFocused($drawerFocus, equals: .openButton)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         HStack(spacing: 12) {
@@ -114,34 +119,20 @@ struct RemoteMobileShell: View {
                     }
                 }
             }
-
-            if drawerIsOpen {
-                Color.black.opacity(0.28)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .onTapGesture { closeDrawer() }
-
-                RemoteNavigationDrawer(
-                    selectedWorkspace: selectedWorkspace,
-                    historyPhase: history?.phase,
-                    rows: navigationRows,
-                    selectedSessionID: selectedSessionID,
-                    onSelectWorkspace: selectWorkspace,
-                    onSelectChat: selectChat,
-                    onNewSession: {
-                        closeDrawer()
-                        openWorkflowLaunch()
-                    },
-                    onSettings: {
-                        closeDrawer()
-                        showingSettings = true
-                    },
-                    onClose: closeDrawer
-                )
-                .environmentObject(model)
-                .transition(.move(edge: .leading))
-                .zIndex(1)
-            }
+            .accessibilityHidden(drawerIsOpen)
+        }
+        .background {
+            RemoteDrawerEdgeGesture(
+                isEnabled: !drawerIsOpen && !showingSettings && !showingChatDetails,
+                onDrag: { drawerDragDistance = $0 },
+                onFinish: { opens in
+                    if !drawerIsOpen { setDrawerOpen(opens) }
+                }
+            )
+        }
+        .overlay { drawerOverlay }
+        .onChange(of: drawerIsOpen) { _, open in
+            drawerFocus = open ? .closeButton : .openButton
         }
         .sheet(isPresented: $showingSettings) {
             PermissionsView().environmentObject(model)
@@ -180,6 +171,49 @@ struct RemoteMobileShell: View {
         }
     }
 
+    private var drawerOverlay: some View {
+        GeometryReader { geometry in
+            let width = min(geometry.size.width, RemoteDrawerDrag.maximumWidth)
+            let offset = drawerIsOpen ? width : RemoteDrawerDrag.offset(distance: drawerDragDistance ?? 0, width: width)
+            ZStack {
+                if width > 0, drawerIsOpen || drawerDragDistance != nil {
+                    Color.black.opacity(0.28 * (offset / width))
+                        .ignoresSafeArea()
+                        .accessibilityHidden(true)
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: closeDrawer)
+                        .transition(.opacity)
+
+                    RemoteNavigationDrawer(
+                        selectedWorkspace: selectedWorkspace,
+                        historyPhase: history?.phase,
+                        rows: navigationRows,
+                        selectedSessionID: selectedSessionID,
+                        onSelectWorkspace: selectWorkspace,
+                        onSelectChat: selectChat,
+                        onNewSession: {
+                            closeDrawer()
+                            openWorkflowLaunch()
+                        },
+                        onSettings: {
+                            closeDrawer()
+                            showingSettings = true
+                        },
+                        onClose: closeDrawer,
+                        drawerFocus: $drawerFocus
+                    )
+                    .environmentObject(model)
+                    .frame(width: width)
+                    .position(x: offset - width / 2, y: geometry.size.height / 2)
+                    .transition(.offset(x: -offset))
+                    .accessibilityHidden(!drawerIsOpen)
+                    .accessibilityAction(.escape, closeDrawer)
+                }
+            }
+        }
+        .allowsHitTesting(drawerIsOpen)
+    }
+
     private var navigationTitle: String {
         if showingWorkflowLaunch { return "New chat" }
         return selectedChat?.title ?? selectedWorkspace?.name ?? "RepoPrompt Remote"
@@ -194,7 +228,7 @@ struct RemoteMobileShell: View {
         selectedWorkspaceID = workspaceID
         selectedSessionID = pendingID
         model.setVisibleSessionID(pendingID)
-        drawerIsOpen = false
+        closeDrawer()
         _ = model.consumePendingSessionID()
     }
 
@@ -247,12 +281,15 @@ struct RemoteMobileShell: View {
         model.setVisibleSessionID(selectedSessionID)
     }
 
-    private func openDrawer() {
-        withAnimation(.easeOut(duration: 0.22)) { drawerIsOpen = true }
-    }
+    private func openDrawer() { setDrawerOpen(true) }
 
-    private func closeDrawer() {
-        withAnimation(.easeOut(duration: 0.22)) { drawerIsOpen = false }
+    private func closeDrawer() { setDrawerOpen(false) }
+
+    private func setDrawerOpen(_ open: Bool) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+            drawerIsOpen = open
+            drawerDragDistance = nil
+        }
     }
 
     private var connectionTitle: String {
@@ -306,6 +343,109 @@ struct RemoteMobileShell: View {
         }
     }
 
+}
+
+enum RemoteDrawerDrag {
+    static let maximumWidth: CGFloat = 350
+
+    static func offset(distance: CGFloat, width: CGFloat) -> CGFloat {
+        min(max(distance, 0), width)
+    }
+
+    static func shouldOpen(distance: CGFloat, verticalDistance: CGFloat, velocity: CGFloat, width: CGFloat) -> Bool {
+        guard width > 0, distance >= 16, distance > abs(verticalDistance) else { return false }
+        let projectedDistance = distance + velocity * 0.15
+        return projectedDistance >= width * 0.4
+    }
+}
+
+/// Attach to the hosting view so touches reach scroll views and text controls
+/// normally until UIKit recognizes a deliberate pan from the screen edge.
+private struct RemoteDrawerEdgeGesture: UIViewRepresentable {
+    let isEnabled: Bool
+    let onDrag: (CGFloat) -> Void
+    let onFinish: (Bool) -> Void
+
+    func makeUIView(context: Context) -> EdgeGestureView {
+        let view = EdgeGestureView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: EdgeGestureView, context: Context) {
+        view.onDrag = onDrag
+        view.onFinish = onFinish
+        view.edgePan.isEnabled = isEnabled
+    }
+
+    static func dismantleUIView(_ view: EdgeGestureView, coordinator: ()) {
+        view.detach()
+    }
+
+    final class EdgeGestureView: UIView, UIGestureRecognizerDelegate {
+        var onDrag: ((CGFloat) -> Void)?
+        var onFinish: ((Bool) -> Void)?
+        lazy var edgePan: UIScreenEdgePanGestureRecognizer = {
+            let recognizer = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            recognizer.edges = .left
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            detach()
+            guard window != nil else { return }
+            var responder = next
+            while let candidate = responder {
+                if let controller = candidate as? UIViewController {
+                    controller.viewIfLoaded?.addGestureRecognizer(edgePan)
+                    return
+                }
+                responder = candidate.next
+            }
+        }
+
+        func detach() {
+            edgePan.view?.removeGestureRecognizer(edgePan)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            let point = touch.location(in: self)
+            // Stay inside the edge margin before horizontally scrollable content.
+            guard point.x <= 12, bounds.contains(point) else { return false }
+            var hitView = touch.view
+            while let view = hitView, view !== gestureRecognizer.view {
+                if view is UITextInput { return false }
+                hitView = view.superview
+            }
+            return true
+        }
+
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            let velocity = edgePan.velocity(in: edgePan.view)
+            return velocity.x > abs(velocity.y) * 1.25
+        }
+
+        @objc private func handlePan(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+            let translation = recognizer.translation(in: recognizer.view)
+            switch recognizer.state {
+            case .began, .changed:
+                onDrag?(translation.x)
+            case .ended:
+                onFinish?(RemoteDrawerDrag.shouldOpen(
+                    distance: translation.x,
+                    verticalDistance: translation.y,
+                    velocity: recognizer.velocity(in: recognizer.view).x,
+                    width: min(bounds.width, RemoteDrawerDrag.maximumWidth)
+                ))
+            case .cancelled, .failed:
+                onFinish?(false)
+            default:
+                break
+            }
+        }
+    }
 }
 
 private struct MobileProvisionalSessionView: View {
@@ -363,8 +503,14 @@ private struct MobileProjectEmptyView: View {
     }
 }
 
+private enum RemoteDrawerFocus: Hashable {
+    case openButton
+    case closeButton
+}
+
 private struct RemoteNavigationDrawer: View {
     @EnvironmentObject private var model: RemoteAppModel
+    @State private var showingConnectionDetails = false
     let selectedWorkspace: RemoteWorkspaceSummary?
     let historyPhase: RemoteWorkspaceHistory.Phase?
     let rows: [RemoteSessionNavigationRow]
@@ -374,6 +520,7 @@ private struct RemoteNavigationDrawer: View {
     let onNewSession: () -> Void
     let onSettings: () -> Void
     let onClose: () -> Void
+    let drawerFocus: AccessibilityFocusState<RemoteDrawerFocus?>.Binding
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -390,6 +537,7 @@ private struct RemoteNavigationDrawer: View {
                         .frame(width: 32, height: 32)
                 }
                 .accessibilityLabel("Close navigation")
+                .accessibilityFocused(drawerFocus, equals: .closeButton)
             }
             .padding(.horizontal, 4)
             .padding(.bottom, 12)
@@ -435,7 +583,6 @@ private struct RemoteNavigationDrawer: View {
         .padding(.top, 12)
         .padding(.horizontal, 16)
         .padding(.bottom, 14)
-        .frame(maxWidth: 350)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(.regularMaterial)
         .overlay(alignment: .trailing) { Rectangle().fill(.quaternary).frame(width: 1) }
@@ -497,20 +644,36 @@ private struct RemoteNavigationDrawer: View {
 
     private var connectionFooter: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 9) {
-                Circle()
-                    .fill(model.connectionState == .connected ? Color.remoteSuccess : Color.remoteWarmOrange)
-                    .frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.snapshot?.desktop.displayName ?? "Paired Mac")
-                        .font(.footnote.weight(.semibold)).lineLimit(1)
-                    Text(model.connectionStatusLabel)
-                        .font(.caption2).foregroundStyle(.secondary)
+            Button { showingConnectionDetails = true } label: {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(connectionStatusColor)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.snapshot?.desktop.displayName ?? "Paired Mac")
+                            .font(.footnote.weight(.semibold))
+                        Text(model.connectionStatusLabel)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
+                .padding(10)
+                .frame(minHeight: 44)
+                .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+                .contentShape(Rectangle())
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows connection details")
+            .popover(isPresented: $showingConnectionDetails, attachmentAnchor: .rect(.bounds)) {
+                RemoteConnectionDetailsView()
+                    .environmentObject(model)
+                    .presentationDetents([.medium, .large])
+                    .presentationCompactAdaptation(.sheet)
+            }
 
             Button(action: onSettings) {
                 HStack(spacing: 10) {
@@ -528,6 +691,41 @@ private struct RemoteNavigationDrawer: View {
             .buttonStyle(.plain)
         }
         .font(.subheadline.weight(.medium))
+    }
+
+    private var connectionStatusColor: Color {
+        if model.connectionState == .connected { return .green }
+        return model.isRecovering ? .yellow : .red
+    }
+}
+
+private struct RemoteConnectionDetailsView: View {
+    @EnvironmentObject private var model: RemoteAppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(model.snapshot?.desktop.displayName ?? "Paired Mac")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 12)
+                Button("Done") { dismiss() }
+            }
+            LabeledContent("Status", value: model.connectionStatusLabel)
+            if let lastSyncAt = model.lastSyncAt {
+                LabeledContent("Last sync") {
+                    Text(lastSyncAt, format: .dateTime.month().day().hour().minute())
+                }
+            }
+            if model.connectionState != .connected, !model.isRecovering {
+                Button("Reconnect", action: model.retryConnection)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .font(.subheadline)
+        .padding(20)
+        .frame(idealWidth: 300)
     }
 }
 

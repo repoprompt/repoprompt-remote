@@ -1,5 +1,5 @@
-import XCTest
 @testable import RepoPromptRemoteProtocol
+import XCTest
 
 final class RemoteTransportContractTests: XCTestCase {
     func testSnapshotCompressionIsOptInAndPreservesWireResult() throws {
@@ -78,7 +78,7 @@ final class RemoteTransportContractTests: XCTestCase {
     }
 
     func testIrohPairingContractsRoundTrip() throws {
-        let expiry = Date(timeIntervalSince1970: 2_000)
+        let expiry = Date(timeIntervalSince1970: 2000)
         let endpoint = RemoteIrohEndpointAddress(
             endpointID: String(repeating: "b", count: 64),
             directAddresses: ["192.0.2.10:4433", "[2001:db8::1]:4433"],
@@ -298,7 +298,7 @@ final class RemoteTransportContractTests: XCTestCase {
         XCTAssertNil(decoded.pagingMode)
     }
 
-    func testSubscriptionAtomicallyBridgesReplayAndLiveDelivery() async throws {
+    func testSubscriptionAtomicallyBridgesReplayAndLiveDelivery() async {
         let buffer = RemoteEventReplayBuffer(capacity: 8)
         let desktopID = "desktop"
         _ = await buffer.append(RemoteEvent(desktopInstanceID: desktopID, type: .sessionCreated))

@@ -440,6 +440,35 @@ final class RemoteTranscriptTimelineTests: XCTestCase {
         XCTAssertEqual(timeline.itemsByID[uuid(1)]?.detail?.argumentsJSON, "{}")
     }
 
+    func testTranscriptShowsEmptyOnlyAfterAnAcceptedFetch() {
+        let emptyPage = page(sessionID: UUID(), indexes: [])
+        var timeline = RemoteTranscriptTimelineState()
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .loading)
+
+        let initial = timeline.begin(.initial)
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .loading)
+        let latest = timeline.begin(.latest)
+        XCTAssertFalse(timeline.apply(emptyPage, kind: .initial, generation: initial))
+        XCTAssertEqual(timeline.presentationState(isConnected: false, isRecovering: true), .waitingForMac)
+        XCTAssertEqual(timeline.presentationState(isConnected: false, isRecovering: false), .reconnect)
+
+        XCTAssertTrue(timeline.fail("Unavailable", kind: .latest, generation: latest))
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .failed("Unavailable"))
+        let retry = timeline.begin(.initial)
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .loading)
+        XCTAssertTrue(timeline.apply(emptyPage, kind: .initial, generation: retry))
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .empty)
+    }
+
+    func testLatestFetchCanConfirmAnEmptyTranscriptAfterInitialFailure() {
+        var timeline = RemoteTranscriptTimelineState()
+        let initial = timeline.begin(.initial)
+        XCTAssertTrue(timeline.fail("Unavailable", kind: .initial, generation: initial))
+        let latest = timeline.begin(.latest)
+        XCTAssertTrue(timeline.apply(page(sessionID: UUID(), indexes: []), kind: .latest, generation: latest))
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .empty)
+    }
+
     func testFailedRefreshRetainsLastCompleteTimeline() {
         let sessionID = UUID()
         var timeline = RemoteTranscriptTimelineState()
@@ -451,6 +480,8 @@ final class RemoteTranscriptTimelineTests: XCTestCase {
         ))
         let items = timeline.orderedItems
         let refresh = timeline.begin(.latest)
+        XCTAssertEqual(timeline.presentationState(isConnected: true, isRecovering: false), .messages)
+        XCTAssertEqual(timeline.presentationState(isConnected: false, isRecovering: true), .messages)
         XCTAssertTrue(timeline.fail("offline", kind: .latest, generation: refresh))
         XCTAssertEqual(timeline.orderedItems, items)
         XCTAssertEqual(timeline.latestRefreshState, .failed("offline"))
@@ -495,6 +526,26 @@ final class RemoteTranscriptTimelineTests: XCTestCase {
 
     private func uuid(_ value: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))!
+    }
+}
+
+final class RemoteDrawerDragTests: XCTestCase {
+    func testOffsetFollowsFingerWithinDrawerWidth() {
+        XCTAssertEqual(RemoteDrawerDrag.offset(distance: -20, width: 320), 0)
+        XCTAssertEqual(RemoteDrawerDrag.offset(distance: 100, width: 320), 100)
+        XCTAssertEqual(RemoteDrawerDrag.offset(distance: 380, width: 320), 320)
+    }
+
+    func testDeliberatePullAndFlickOpenTheDrawer() {
+        XCTAssertTrue(RemoteDrawerDrag.shouldOpen(distance: 140, verticalDistance: 8, velocity: 0, width: 350))
+        XCTAssertTrue(RemoteDrawerDrag.shouldOpen(distance: 45, verticalDistance: -4, velocity: 750, width: 350))
+    }
+
+    func testShortVerticalAndReversingDragsReturnTheDrawerToClosed() {
+        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 12, verticalDistance: 0, velocity: 1200, width: 350))
+        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 120, verticalDistance: 160, velocity: 500, width: 350))
+        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 60, verticalDistance: 8, velocity: 0, width: 350))
+        XCTAssertFalse(RemoteDrawerDrag.shouldOpen(distance: 160, verticalDistance: 8, velocity: -250, width: 350))
     }
 }
 

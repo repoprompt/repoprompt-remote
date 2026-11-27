@@ -371,9 +371,30 @@ struct RemoteChatView: View {
         }
     }
 
+    private var transcriptState: RemoteTranscriptPresentationState {
+        let timeline = model.transcriptTimelinesBySessionID[sessionID] ?? RemoteTranscriptTimelineState()
+        return timeline.presentationState(
+            isConnected: model.connectionState == .connected,
+            isRecovering: model.isRecovering
+        )
+    }
+
     private var emptyTranscript: some View {
         Group {
-            if case let .failed(message) = model.transcriptTimelinesBySessionID[sessionID]?.initialLoadState {
+            switch transcriptState {
+            case .messages:
+                EmptyView()
+            case .loading:
+                ProgressView("Loading conversation…")
+            case .waitingForMac:
+                ProgressView("Waiting for Mac…")
+            case .reconnect:
+                ContentUnavailableView {
+                    Label("Mac is offline", systemImage: "wifi.slash")
+                } actions: {
+                    Button("Reconnect", action: model.retryConnection)
+                }
+            case let .failed(message):
                 ContentUnavailableView {
                     Label("Conversation unavailable", systemImage: "exclamationmark.triangle")
                 } description: {
@@ -381,7 +402,7 @@ struct RemoteChatView: View {
                 } actions: {
                     Button("Retry") { model.retryTranscript(for: sessionID) }
                 }
-            } else {
+            case .empty:
                 ContentUnavailableView(
                     "No messages yet",
                     systemImage: "text.bubble",
@@ -420,7 +441,9 @@ struct RemoteChatView: View {
                         expandedDetailIDs.remove(item.id)
                     } else {
                         expandedDetailIDs.insert(item.id)
-                        model.loadTranscriptDetails(for: sessionID, itemID: item.id)
+                        if item.detail?.diffPreview == nil {
+                            model.loadTranscriptDetails(for: sessionID, itemID: item.id)
+                        }
                     }
                 },
                 onLoadDetails: { item in model.loadTranscriptDetails(for: sessionID, itemID: item.id) }
@@ -878,7 +901,7 @@ private struct RemoteCodeBlock: View {
                         .frame(minWidth: 34, minHeight: 30)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(copied ? "Copied" : "Copy code")
+                .accessibilityLabel(copied ? "Copied" : (isDiff ? "Copy diff preview" : "Copy code"))
             }
             ScrollView(.horizontal) {
                 let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(typeSize))
@@ -902,18 +925,20 @@ private struct RemoteCodeBlock: View {
         ])
         guard isDiff else { return result }
         var location = 0
+        var isInHunk = false
         for line in code.components(separatedBy: "\n") {
             let length = line.utf16.count
-            let color: UIColor = if line.hasPrefix("+++ ") || line.hasPrefix("--- ") || line.hasPrefix("@@") {
-                .secondaryLabel
-            } else if line.hasPrefix("+") {
-                .systemGreen
-            } else if line.hasPrefix("-") {
-                .systemRed
-            } else {
-                .label
+            let range = NSRange(location: location, length: length)
+            if line.hasPrefix("diff --git ") { isInHunk = false }
+            if line.hasPrefix("@@") {
+                isInHunk = true
+                result.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: range)
+            } else if isInHunk, line.hasPrefix("+") || line.hasPrefix("-") {
+                let color: UIColor = line.hasPrefix("+") ? .systemGreen : .systemRed
+                result.addAttribute(.backgroundColor, value: color.withAlphaComponent(0.17), range: range)
+            } else if !isInHunk || line.hasPrefix("\\ No newline") {
+                result.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: range)
             }
-            result.addAttribute(.foregroundColor, value: color, range: NSRange(location: location, length: length))
             location += length + 1
         }
         return result
@@ -1121,10 +1146,23 @@ private struct RemoteActivityGroupView: View {
         Array(Set(items.compactMap(\.toolName))).sorted()
     }
 
-    private var accent: Color { exceptional ? .remoteFailure : .secondary }
+    private var isRecordedQuestion: Bool {
+        items.count == 1 && RemoteTranscriptPresentation.isAskUserTool(items.first?.toolName)
+    }
+
+    private var diffSummary: RemoteTranscriptDiffSummary? {
+        items.count == 1 ? items.first?.diffSummary : nil
+    }
+
+    private var accent: Color {
+        if isRecordedQuestion, aggregateStatus != .failed { return .remoteWarmOrange }
+        return exceptional ? .remoteFailure : .secondary
+    }
 
     private var singleTool: RemoteTranscriptItem? {
-        guard items.count == 1, let first = items.first, RemoteToolCardKind(first.toolName) != nil else { return nil }
+        guard items.count == 1, let first = items.first,
+              isRecordedQuestion || diffSummary != nil || RemoteToolCardKind(first.toolName) != nil
+        else { return nil }
         return first
     }
 
@@ -1139,7 +1177,9 @@ private struct RemoteActivityGroupView: View {
     }
 
     private var title: String {
+        if isRecordedQuestion { return "Question" }
         if let singleToolKind { return singleToolKind.title }
+        if diffSummary != nil { return "Git diff" }
         if exceptional {
             let semantic = items.first.map(RemoteTranscriptPresentation.semanticKind(for:))
             switch semantic {
@@ -1155,6 +1195,13 @@ private struct RemoteActivityGroupView: View {
         return "\(items.count) activities"
     }
 
+    private var icon: String {
+        if isRecordedQuestion { return "questionmark.circle.fill" }
+        if let singleToolKind { return singleToolKind.icon }
+        if diffSummary != nil { return "arrow.left.arrow.right" }
+        return exceptional ? "exclamationmark.triangle.fill" : "wrench.and.screwdriver"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -1162,14 +1209,26 @@ private struct RemoteActivityGroupView: View {
                 else { onToggleGroup() }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: singleToolKind?.icon ?? (exceptional ? "exclamationmark.triangle.fill" : "wrench.and.screwdriver"))
+                    Image(systemName: icon)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(accent)
                         .frame(width: 28, height: 28)
                         .background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.footnote.weight(.semibold))
-                        if let singleTool, let singleToolKind {
+                        if isRecordedQuestion, let singleTool {
+                            let preview = RemoteTranscriptPresentation.recordedQuestionPreview(for: singleTool)
+                            if let preview {
+                                Text(preview).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            } else if aggregateStatus == .completed {
+                                Text("No recorded answer").font(.caption).foregroundStyle(.secondary)
+                            }
+                        } else if let diffSummary {
+                            Text(RemoteTranscriptPresentation.diffSummaryText(diffSummary))
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        } else if let singleTool, let singleToolKind {
                             if let summary = singleToolKind.summary(for: singleTool), !summary.isEmpty {
                                 Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                             }
@@ -1184,7 +1243,7 @@ private struct RemoteActivityGroupView: View {
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 3) {
-                        if let aggregateStatus {
+                        if let aggregateStatus, !isRecordedQuestion || aggregateStatus == .failed {
                             Text(aggregateStatus.label)
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(aggregateStatus.tint)
@@ -1229,6 +1288,7 @@ private struct RemoteActivityGroupView: View {
             RoundedRectangle(cornerRadius: 14).stroke(accent.opacity(exceptional ? 0.28 : 0.12), lineWidth: 1)
         }
     }
+
 }
 
 private extension RemoteTranscriptItem {
@@ -1290,7 +1350,18 @@ private struct RemoteActivityDetailsView: View {
     let onLoadDetails: () -> Void
 
     var body: some View {
-        if let detail = item.detail {
+        if let exchange = item.detail?.questionExchange {
+            RemoteRecordedQuestionDetails(exchange: exchange)
+        } else if let detail = item.detail, let preview = detail.diffPreview {
+            RemoteToolDiffPreviewView(preview: preview, detail: detail)
+        } else if RemoteTranscriptPresentation.isAskUserTool(item.toolName),
+                  RemoteToolActivityState(item) == .completed,
+                  item.detail != nil || item.detailText != nil
+        {
+            Text("Question and answer details are unavailable.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let detail = item.detail {
             RemoteToolDetails(detail: detail, kind: RemoteToolCardKind(item.toolName),
                               showsSummary: item.text == nil, summaryOnly: item.summaryOnly)
         } else if let text = item.detailText, !text.isEmpty {
@@ -1305,6 +1376,76 @@ private struct RemoteActivityDetailsView: View {
                 ProgressView("Loading details…").font(.caption)
             }
         }
+    }
+}
+
+private struct RemoteToolDiffPreviewView: View {
+    let preview: RemoteTranscriptDiffPreview
+    let detail: RemoteTranscriptDetail
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if preview.isTruncated {
+                Label("Partial diff preview", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            }
+            if !preview.files.contains(where: { $0.patch != nil }) {
+                Text("No patch preview available.").foregroundStyle(.secondary)
+            }
+            ForEach(preview.files.indices, id: \.self) { index in
+                let file = preview.files[index]
+                if let patch = file.patch {
+                    RemoteCodeBlock(language: file.path, code: patch, isDiff: true)
+                } else {
+                    LabeledContent(file.path) {
+                        if let additions = file.additions, let deletions = file.deletions {
+                            Text("+\(additions) −\(deletions)").monospacedDigit()
+                        }
+                    }
+                }
+            }
+            if detail.resultJSON != nil {
+                DisclosureGroup("Raw result") {
+                    RemoteToolDetails(detail: detail, kind: nil, showsSummary: false, summaryOnly: false)
+                }
+            }
+        }
+        .font(.caption)
+    }
+}
+
+private struct RemoteRecordedQuestionDetails: View {
+    let exchange: RemoteRecordedQuestionExchange
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let title = exchange.title {
+                Text(title).font(.subheadline.weight(.semibold))
+            }
+            ForEach(exchange.questions.indices, id: \.self) { index in
+                let question = exchange.questions[index]
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(exchange.questions.count == 1 ? "Question" : "Question \(index + 1)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    RemoteMarkdownText(markdown: question.prompt, textStyle: .footnote)
+                    Text("Answer")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: answer(for: question))
+                        .font(.footnote)
+                        .foregroundStyle(question.answer == nil ? .secondary : .primary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func answer(for question: RemoteRecordedQuestionExchange.Question) -> String {
+        if question.skipped { return "Skipped" }
+        if let answer = question.answer { return answer }
+        return exchange.outcome == .timedOut ? "Timed out" : "No answer recorded"
     }
 }
 
@@ -1393,7 +1534,7 @@ struct RemoteChatComposer: View {
     fileprivate static let transcriptFadeHeight: CGFloat = 22
 
     enum Destination {
-        case newChat(workflowID: String?)
+        case newChat(workflowID: String?, interviewFirst: Bool)
         case session(UUID, RemoteRunState)
     }
 
@@ -1403,7 +1544,6 @@ struct RemoteChatComposer: View {
 
     @FocusState private var isInputFocused: Bool
     @State private var message = ""
-    @State private var interviewFirst = false
     @StateObject private var attachments = RemoteAttachmentDraft()
     @State private var pendingSend: (id: UUID, draft: String)?
     @State private var pendingCancelID: UUID?
@@ -1470,16 +1610,6 @@ struct RemoteChatComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if case .newChat = destination {
-                Toggle(isOn: $interviewFirst) {
-                    Label("Interview first", systemImage: "bubble.left.and.bubble.right")
-                        .font(.subheadline.weight(.medium))
-                }
-                .controlSize(.small)
-                .tint(Color.remoteWarmOrange)
-                .disabled(!model.canControlChat || pendingCommandID != nil)
-                .accessibilityHint("Ask clarifying questions before starting work.")
-            }
             if policy.isInteractionBlocking {
                 Label("Respond to the request above", systemImage: "arrow.up")
                     .font(.caption.weight(.semibold))
@@ -1575,7 +1705,6 @@ struct RemoteChatComposer: View {
                 if completion.outcome == .accepted {
                     if message == pendingSend.draft { message = "" }
                     attachments.clear()
-                    interviewFirst = false
                 }
             }
             if activity.completion(for: pendingCancelID) != nil { pendingCancelID = nil }
@@ -1626,7 +1755,7 @@ struct RemoteChatComposer: View {
         isInputFocused = false
         let commandID: UUID
         switch destination {
-        case let .newChat(workflowID):
+        case let .newChat(workflowID, interviewFirst):
             let selection = model.agentCatalogMetadata?.supportsStartSelection == true ? self.selection : nil
             commandID = model.startRun(
                 in: workspaceID,

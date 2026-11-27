@@ -14,6 +14,15 @@ enum RemoteTranscriptLoadKind {
     case older
 }
 
+enum RemoteTranscriptPresentationState: Equatable {
+    case messages
+    case loading
+    case waitingForMac
+    case reconnect
+    case failed(String)
+    case empty
+}
+
 /// Per-session transcript state. The value owns ordering, identity-based merges,
 /// paging metadata, revision state, and generation guards; networking remains in
 /// `RemoteAppModel`.
@@ -26,6 +35,7 @@ struct RemoteTranscriptTimelineState: Equatable {
     private(set) var loadedRevision: UInt64?
     private(set) var loadedRevisionEpoch: UUID?
     private(set) var chatConfiguration: RemoteChatConfiguration?
+    private(set) var hasLoadedTranscript = false
     private(set) var initialLoadState: RemoteTranscriptLoadState = .idle
     private(set) var latestRefreshState: RemoteTranscriptLoadState = .idle
     private(set) var olderPageState: RemoteTranscriptLoadState = .idle
@@ -49,10 +59,19 @@ struct RemoteTranscriptTimelineState: Equatable {
         orderedItems.last.map(Self.cursor(for:))
     }
 
+    func presentationState(isConnected: Bool, isRecovering: Bool) -> RemoteTranscriptPresentationState {
+        if !orderedItems.isEmpty { return .messages }
+        if !isConnected { return isRecovering ? .waitingForMac : .reconnect }
+        if initialLoadState == .loading || latestRefreshState == .loading { return .loading }
+        if case let .failed(message) = initialLoadState { return .failed(message) }
+        if case let .failed(message) = latestRefreshState { return .failed(message) }
+        return hasLoadedTranscript ? .empty : .loading
+    }
+
     mutating func begin(_ kind: RemoteTranscriptLoadKind) -> UInt64 {
         mutationGeneration &+= 1
-        if initialLoadState == .loading { initialLoadState = .idle }
-        if latestRefreshState == .loading { latestRefreshState = .idle }
+        if kind != .older || initialLoadState == .loading { initialLoadState = .idle }
+        if kind != .older || latestRefreshState == .loading { latestRefreshState = .idle }
         if olderPageState == .loading { olderPageState = .idle }
         switch kind {
         case .initial: initialLoadState = .loading
@@ -71,8 +90,9 @@ struct RemoteTranscriptTimelineState: Equatable {
     ) -> Bool {
         guard generationIsCurrent(generation, for: kind) else { return false }
 
-        if kind != .older, let configuration = page.chatConfiguration {
-            chatConfiguration = configuration
+        if kind != .older {
+            hasLoadedTranscript = true
+            if let configuration = page.chatConfiguration { chatConfiguration = configuration }
         }
         let pageMode = page.pagingMode ?? .legacyForward
         let sortedPageItems = Self.sorted(page.items)
@@ -155,7 +175,8 @@ struct RemoteTranscriptTimelineState: Equatable {
             detailAvailable: detailedItem.detailAvailable,
             detailText: detailedItem.detailText,
             detail: detailedItem.detail,
-            attachments: detailedItem.attachments ?? current.attachments
+            attachments: detailedItem.attachments ?? current.attachments,
+            diffSummary: current.diffSummary ?? detailedItem.diffSummary
         )
         if resort { orderedItems = Self.sorted(Array(itemsByID.values)) }
     }
@@ -171,6 +192,7 @@ struct RemoteTranscriptTimelineState: Equatable {
             if let cached = itemsByID[item.id],
                cached.text == item.text, cached.toolStatus == item.toolStatus,
                cached.detailAvailable == item.detailAvailable,
+               cached.diffSummary == item.diffSummary,
                cached.attachments?.map(\.id) == item.attachments?.map(\.id),
                cached.detail != nil || cached.detailText != nil
             {
