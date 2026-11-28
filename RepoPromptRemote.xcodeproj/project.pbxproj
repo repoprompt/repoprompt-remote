@@ -10,16 +10,21 @@
 		000C6F928DBB177D240F9339 /* RemoteReadOnlyClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 470D290AF8A140BD32DF1175 /* RemoteReadOnlyClientTests.swift */; };
 		0DA1B56526836282FB649CEA /* RemoteGatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6E6B94165C3C59ED6A712E /* RemoteGatewayClient.swift */; };
 		1CF74E7D8B7EB166D6B41CE9 /* RemoteIrohIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D4D49FCEAF613384E51D179 /* RemoteIrohIdentityStore.swift */; };
+		1D8EF28F9C51111A5314A01A /* StartVoiceWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E1145E9464F2CE7590D263 /* StartVoiceWidget.swift */; };
 		1DDFEF8DF134D51674495826 /* RemoteWorkflowLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95947826991694030F118CFE /* RemoteWorkflowLaunchView.swift */; };
+		2465E38BA013B58F911EF39B /* WorkspaceVoiceLaunchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4821ABA05B66628E01AE43B9 /* WorkspaceVoiceLaunchLink.swift */; };
 		27221FD8AC6ED19BA066891B /* RemoteSessionNavigationProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21736F4CB4F7F9402069AEB /* RemoteSessionNavigationProjection.swift */; };
 		2874FED6E5A20C465F709569 /* RemoteSnapshotReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56F00D1D9CA144F589A3B128 /* RemoteSnapshotReducer.swift */; };
 		293ED8626CC7996DF368D834 /* RemoteIrohFoundationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23BE5805AB980D68FB96809D /* RemoteIrohFoundationTests.swift */; };
 		2B0137D5CD737461F4B7CAD7 /* RemoteNotificationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 903ED92338FD578C6DD3A18D /* RemoteNotificationDelegate.swift */; };
 		359A91E52C12021BB187FE45 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0EEF192A172A3699645318 /* RootView.swift */; };
+		3AA83C97B93E70381E16E988 /* RepoPromptRemoteWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9A026254213A90414D44FC02 /* RepoPromptRemoteWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3F18D21D47F9F16E5110473B /* RepoPromptRemoteNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = DB98CE3585FEFF9139E586E4 /* RepoPromptRemoteNetworking */; };
+		53555D4F411B935F83471852 /* RemoteWorkspaceVoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F141577DF3AD9788551C19C /* RemoteWorkspaceVoiceView.swift */; };
 		5C6B73E7B6EF8356E33D87AD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2C6F2A38764CE8EF1A30C5C /* Assets.xcassets */; };
 		6064E2F909B033D4CB08305C /* RemoteTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0C3A53BDD1A546414AF4D4 /* RemoteTabView.swift */; };
 		64A559A1E0CD3B0D7E05D30C /* RemoteCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */; };
+		6A2853456826BC517B29BC35 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = F529AEAAE6E8C8DF9A6DE5ED /* WebRTC */; };
 		6C2669FE2221F8A72818AE10 /* RemoteTranscriptPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49177B586584F009F6C5B105 /* RemoteTranscriptPresentation.swift */; };
 		6F97D4707DE71F580ACAD266 /* RemoteMobileShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD4002D9D4983164EB1FD0D /* RemoteMobileShell.swift */; };
 		7BB90B7C639FA3239901F959 /* RemoteAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04395513075E87717C94213B /* RemoteAppModel.swift */; };
@@ -33,9 +38,13 @@
 		C5A161F78F81D871AB065F63 /* RemoteAttachmentPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53671A8EB4D676B03E2D2877 /* RemoteAttachmentPicker.swift */; };
 		D00DF15172DF2E989DEACB6B /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 4BAD712468BE8B87AA709273 /* Sentry */; };
 		D144F36662E90FEF7E0A6AD2 /* RemoteComposerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA02A11352F8A6D7D831BD2A /* RemoteComposerPolicy.swift */; };
+		DBB1D67FD174665A93CC5A59 /* WorkspaceVoiceShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0621E67750873777A942C7 /* WorkspaceVoiceShortcuts.swift */; };
 		DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = E9FAD3AE0F5E68C6AF231FD1 /* RepoPromptRemoteNetworking */; };
 		DF3911D75542BD3CE3DE81AE /* RemoteTranscriptTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1182B8B339DF60C8EB9DD7E5 /* RemoteTranscriptTimeline.swift */; };
 		E223C4A4048DACC2B846D1B5 /* RemoteTranscriptPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A41690A75F0A8B58EE2B740F /* RemoteTranscriptPresentationTests.swift */; };
+		ED7114DA949E905D4EE7E143 /* WorkspaceVoiceLaunchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4821ABA05B66628E01AE43B9 /* WorkspaceVoiceLaunchLink.swift */; };
+		ED7C94CEDD4A9442FC2F9AF5 /* RemoteWorkspaceVoiceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7440F6997D01AB726FDD0031 /* RemoteWorkspaceVoiceController.swift */; };
+		F134F8673EBCD3BDDF6378B6 /* WorkspaceVoiceLaunchLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68818421CD4AB81A0F39244D /* WorkspaceVoiceLaunchLinkTests.swift */; };
 		F881271DF2DF6EB738E63327 /* RemoteChatDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35934FE71CD397FC1E3056A7 /* RemoteChatDetailsView.swift */; };
 		FF997B6C82A0F55FE041087F /* RepoPromptRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F991FE43751DDC854D08D07 /* RepoPromptRemoteApp.swift */; };
 		FFCF150646C3FB3CFE172280 /* RemoteSessionStatusPlate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0E513FA2AF090C3827A3928 /* RemoteSessionStatusPlate.swift */; };
@@ -49,39 +58,68 @@
 			remoteGlobalIDString = 9949F85689EC7820D4929CFF;
 			remoteInfo = RepoPromptRemote;
 		};
+		D54C5EE129F0F960E088DDC3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 01E3FD85513D18913609ADFE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F2799D2624A7F5128A095A6D;
+			remoteInfo = RepoPromptRemoteWidget;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B716633091D2D7A11F5163FF /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				3AA83C97B93E70381E16E988 /* RepoPromptRemoteWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		04395513075E87717C94213B /* RemoteAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAppModel.swift; sourceTree = "<group>"; };
 		1182B8B339DF60C8EB9DD7E5 /* RemoteTranscriptTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTranscriptTimeline.swift; sourceTree = "<group>"; };
 		1D4D49FCEAF613384E51D179 /* RemoteIrohIdentityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteIrohIdentityStore.swift; sourceTree = "<group>"; };
 		1E0EEF192A172A3699645318 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		1F141577DF3AD9788551C19C /* RemoteWorkspaceVoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkspaceVoiceView.swift; sourceTree = "<group>"; };
 		23BE5805AB980D68FB96809D /* RemoteIrohFoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteIrohFoundationTests.swift; sourceTree = "<group>"; };
 		35934FE71CD397FC1E3056A7 /* RemoteChatDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteChatDetailsView.swift; sourceTree = "<group>"; };
 		39BB706F621CCDBC66A5EF89 /* RemoteInteractionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInteractionCard.swift; sourceTree = "<group>"; };
 		470D290AF8A140BD32DF1175 /* RemoteReadOnlyClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteReadOnlyClientTests.swift; sourceTree = "<group>"; };
+		4821ABA05B66628E01AE43B9 /* WorkspaceVoiceLaunchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceVoiceLaunchLink.swift; sourceTree = "<group>"; };
 		49177B586584F009F6C5B105 /* RemoteTranscriptPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTranscriptPresentation.swift; sourceTree = "<group>"; };
 		53671A8EB4D676B03E2D2877 /* RemoteAttachmentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAttachmentPicker.swift; sourceTree = "<group>"; };
 		56F00D1D9CA144F589A3B128 /* RemoteSnapshotReducer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSnapshotReducer.swift; sourceTree = "<group>"; };
 		623851E6EB5BBAB2877B1159 /* RemoteCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteCredentialStore.swift; sourceTree = "<group>"; };
-		66D35B60C2698FD4805EE9B9 /* remote-shared-networking */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "remote-shared-networking"; path = .; sourceTree = SOURCE_ROOT; };
+		68818421CD4AB81A0F39244D /* WorkspaceVoiceLaunchLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceVoiceLaunchLinkTests.swift; sourceTree = "<group>"; };
 		6A19589CEF7F12540FA3F7E0 /* RemotePairingTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePairingTelemetry.swift; sourceTree = "<group>"; };
 		6F6E6B94165C3C59ED6A712E /* RemoteGatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteGatewayClient.swift; sourceTree = "<group>"; };
+		7440F6997D01AB726FDD0031 /* RemoteWorkspaceVoiceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkspaceVoiceController.swift; sourceTree = "<group>"; };
 		7F991FE43751DDC854D08D07 /* RepoPromptRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoPromptRemoteApp.swift; sourceTree = "<group>"; };
 		892148190E9B0247201AFB98 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		903ED92338FD578C6DD3A18D /* RemoteNotificationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNotificationDelegate.swift; sourceTree = "<group>"; };
 		95947826991694030F118CFE /* RemoteWorkflowLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkflowLaunchView.swift; sourceTree = "<group>"; };
+		9A026254213A90414D44FC02 /* RepoPromptRemoteWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = RepoPromptRemoteWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9AA570CB291EFFF595B985E2 /* RemotePairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePairing.swift; sourceTree = "<group>"; };
 		A41690A75F0A8B58EE2B740F /* RemoteTranscriptPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTranscriptPresentationTests.swift; sourceTree = "<group>"; };
 		AB452D925881CC69C7A91866 /* RemoteUnpairCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteUnpairCoordinator.swift; sourceTree = "<group>"; };
 		B2C6F2A38764CE8EF1A30C5C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C7DD0060768FC09C0AC3D8FA /* repoprompt-remote-voice-upstream.jKvoK2 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "repoprompt-remote-voice-upstream.jKvoK2"; path = .; sourceTree = SOURCE_ROOT; };
 		CA02A11352F8A6D7D831BD2A /* RemoteComposerPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteComposerPolicy.swift; sourceTree = "<group>"; };
 		CADF2E0CE59D2AA158401B01 /* RepoPromptRemote.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RepoPromptRemote.entitlements; sourceTree = "<group>"; };
+		CD57CB93DF679D303BFB1251 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CFD32A49F4538AF687DE1129 /* RemoteAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAppearance.swift; sourceTree = "<group>"; };
 		D09925835CDFE17D38F84BED /* RemoteModelProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModelProjectionTests.swift; sourceTree = "<group>"; };
 		DCD4002D9D4983164EB1FD0D /* RemoteMobileShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteMobileShell.swift; sourceTree = "<group>"; };
 		E0E513FA2AF090C3827A3928 /* RemoteSessionStatusPlate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionStatusPlate.swift; sourceTree = "<group>"; };
 		E60E4E83DBEEEDCB95119DB1 /* RepoPromptRemote.Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RepoPromptRemote.Release.entitlements; sourceTree = "<group>"; };
+		E8E1145E9464F2CE7590D263 /* StartVoiceWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartVoiceWidget.swift; sourceTree = "<group>"; };
+		EB0621E67750873777A942C7 /* WorkspaceVoiceShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceVoiceShortcuts.swift; sourceTree = "<group>"; };
 		EBCE4DCAC948BE733BF48A48 /* RemoteTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTranscriptView.swift; sourceTree = "<group>"; };
 		EF0C3A53BDD1A546414AF4D4 /* RemoteTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTabView.swift; sourceTree = "<group>"; };
 		F0848AD1E617300421A4B4BE /* RepoPromptRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RepoPromptRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -104,6 +142,7 @@
 			files = (
 				DE88CA30CF7A250B3C7D250D /* RepoPromptRemoteNetworking in Frameworks */,
 				D00DF15172DF2E989DEACB6B /* Sentry in Frameworks */,
+				6A2853456826BC517B29BC35 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -113,7 +152,7 @@
 		3A716B53A537807AD1F72B8E /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				66D35B60C2698FD4805EE9B9 /* remote-shared-networking */,
+				C7DD0060768FC09C0AC3D8FA /* repoprompt-remote-voice-upstream.jKvoK2 */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -125,9 +164,29 @@
 				D09925835CDFE17D38F84BED /* RemoteModelProjectionTests.swift */,
 				470D290AF8A140BD32DF1175 /* RemoteReadOnlyClientTests.swift */,
 				A41690A75F0A8B58EE2B740F /* RemoteTranscriptPresentationTests.swift */,
+				68818421CD4AB81A0F39244D /* WorkspaceVoiceLaunchLinkTests.swift */,
 			);
 			name = RepoPromptRemoteTests;
 			path = Tests/RepoPromptRemoteTests;
+			sourceTree = "<group>";
+		};
+		5D4177E9F474372119A67F87 /* WorkspaceVoiceLauncher */ = {
+			isa = PBXGroup;
+			children = (
+				4821ABA05B66628E01AE43B9 /* WorkspaceVoiceLaunchLink.swift */,
+			);
+			name = WorkspaceVoiceLauncher;
+			path = Sources/WorkspaceVoiceLauncher;
+			sourceTree = "<group>";
+		};
+		5E002B8538786215D77053B4 /* RepoPromptRemoteWidget */ = {
+			isa = PBXGroup;
+			children = (
+				CD57CB93DF679D303BFB1251 /* Info.plist */,
+				E8E1145E9464F2CE7590D263 /* StartVoiceWidget.swift */,
+			);
+			name = RepoPromptRemoteWidget;
+			path = Sources/RepoPromptRemoteWidget;
 			sourceTree = "<group>";
 		};
 		811D2DF98D7A5F6AE2E90FEF /* Products */ = {
@@ -135,6 +194,7 @@
 			children = (
 				F0848AD1E617300421A4B4BE /* RepoPromptRemote.app */,
 				FF86A5C5B4F17115DC350CBC /* RepoPromptRemoteTests.xctest */,
+				9A026254213A90414D44FC02 /* RepoPromptRemoteWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -145,6 +205,8 @@
 				3A716B53A537807AD1F72B8E /* Packages */,
 				E7D8A0648C4981BC7B357DE8 /* RepoPromptRemote */,
 				44D73576A0464BA6423B36FC /* RepoPromptRemoteTests */,
+				5E002B8538786215D77053B4 /* RepoPromptRemoteWidget */,
+				5D4177E9F474372119A67F87 /* WorkspaceVoiceLauncher */,
 				811D2DF98D7A5F6AE2E90FEF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -176,10 +238,13 @@
 				EBCE4DCAC948BE733BF48A48 /* RemoteTranscriptView.swift */,
 				AB452D925881CC69C7A91866 /* RemoteUnpairCoordinator.swift */,
 				95947826991694030F118CFE /* RemoteWorkflowLaunchView.swift */,
+				7440F6997D01AB726FDD0031 /* RemoteWorkspaceVoiceController.swift */,
+				1F141577DF3AD9788551C19C /* RemoteWorkspaceVoiceView.swift */,
 				CADF2E0CE59D2AA158401B01 /* RepoPromptRemote.entitlements */,
 				E60E4E83DBEEEDCB95119DB1 /* RepoPromptRemote.Release.entitlements */,
 				7F991FE43751DDC854D08D07 /* RepoPromptRemoteApp.swift */,
 				1E0EEF192A172A3699645318 /* RootView.swift */,
+				EB0621E67750873777A942C7 /* WorkspaceVoiceShortcuts.swift */,
 			);
 			name = RepoPromptRemote;
 			path = Sources/RepoPromptRemote;
@@ -215,19 +280,39 @@
 				8A5CEC15CD79C9151E6205B2 /* Sources */,
 				1364E91818E961C830BA8C94 /* Resources */,
 				7488E937C32B0471FDF4BBE5 /* Frameworks */,
+				B716633091D2D7A11F5163FF /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				33C2841026BFBAA041270C7A /* PBXTargetDependency */,
 			);
 			name = RepoPromptRemote;
 			packageProductDependencies = (
 				E9FAD3AE0F5E68C6AF231FD1 /* RepoPromptRemoteNetworking */,
 				4BAD712468BE8B87AA709273 /* Sentry */,
+				F529AEAAE6E8C8DF9A6DE5ED /* WebRTC */,
 			);
 			productName = RepoPromptRemote;
 			productReference = F0848AD1E617300421A4B4BE /* RepoPromptRemote.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F2799D2624A7F5128A095A6D /* RepoPromptRemoteWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1292414C807A27D0157DF1E /* Build configuration list for PBXNativeTarget "RepoPromptRemoteWidget" */;
+			buildPhases = (
+				F4F180FA543D6F7E513E22C7 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RepoPromptRemoteWidget;
+			packageProductDependencies = (
+			);
+			productName = RepoPromptRemoteWidget;
+			productReference = 9A026254213A90414D44FC02 /* RepoPromptRemoteWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -244,6 +329,9 @@
 					9949F85689EC7820D4929CFF = {
 						DevelopmentTeam = "";
 					};
+					F2799D2624A7F5128A095A6D = {
+						DevelopmentTeam = "";
+					};
 				};
 			};
 			buildConfigurationList = FF2677CFCE57B3311483C737 /* Build configuration list for PBXProject "RepoPromptRemote" */;
@@ -257,6 +345,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+				5803568FF1775EED1F2035D5 /* XCRemoteSwiftPackageReference "WebRTC" */,
 				23726F6B3A33CCB6D8B2D42B /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -266,6 +355,7 @@
 			targets = (
 				9949F85689EC7820D4929CFF /* RepoPromptRemote */,
 				83B502856B409121788D8203 /* RepoPromptRemoteTests */,
+				F2799D2624A7F5128A095A6D /* RepoPromptRemoteWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -308,8 +398,12 @@
 				9A89D01B1FB5B77D0C0DA5F8 /* RemoteTranscriptView.swift in Sources */,
 				9D7DE4E95E4892D2D5453FE2 /* RemoteUnpairCoordinator.swift in Sources */,
 				1DDFEF8DF134D51674495826 /* RemoteWorkflowLaunchView.swift in Sources */,
+				ED7C94CEDD4A9442FC2F9AF5 /* RemoteWorkspaceVoiceController.swift in Sources */,
+				53555D4F411B935F83471852 /* RemoteWorkspaceVoiceView.swift in Sources */,
 				FF997B6C82A0F55FE041087F /* RepoPromptRemoteApp.swift in Sources */,
 				359A91E52C12021BB187FE45 /* RootView.swift in Sources */,
+				2465E38BA013B58F911EF39B /* WorkspaceVoiceLaunchLink.swift in Sources */,
+				DBB1D67FD174665A93CC5A59 /* WorkspaceVoiceShortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -321,6 +415,16 @@
 				C0105B52C8025271DE24B21C /* RemoteModelProjectionTests.swift in Sources */,
 				000C6F928DBB177D240F9339 /* RemoteReadOnlyClientTests.swift in Sources */,
 				E223C4A4048DACC2B846D1B5 /* RemoteTranscriptPresentationTests.swift in Sources */,
+				F134F8673EBCD3BDDF6378B6 /* WorkspaceVoiceLaunchLinkTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F4F180FA543D6F7E513E22C7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1D8EF28F9C51111A5314A01A /* StartVoiceWidget.swift in Sources */,
+				ED7114DA949E905D4EE7E143 /* WorkspaceVoiceLaunchLink.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -331,6 +435,11 @@
 			isa = PBXTargetDependency;
 			target = 9949F85689EC7820D4929CFF /* RepoPromptRemote */;
 			targetProxy = AE35DDDFE15B1FF0E9685C9B /* PBXContainerItemProxy */;
+		};
+		33C2841026BFBAA041270C7A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F2799D2624A7F5128A095A6D /* RepoPromptRemoteWidget */;
+			targetProxy = D54C5EE129F0F960E088DDC3 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -350,6 +459,24 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RepoPromptRemote.app/RepoPromptRemote";
+			};
+			name = Debug;
+		};
+		6F675ADDC28A66430D313646 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Sources/RepoPromptRemoteWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.repoprompt.remote.workspacevoice;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -377,7 +504,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Sources/RepoPromptRemote/RepoPromptRemote.Release.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 0.1.0;
 				INFOPLIST_FILE = Sources/RepoPromptRemote/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "RepoPrompt Remote";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -387,8 +513,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.repoprompt.remote;
+				PROVISIONING_PROFILE_SPECIFIER = "$(REPOPROMPT_APP_PROFILE)";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -400,7 +526,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Sources/RepoPromptRemote/RepoPromptRemote.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 0.1.0;
 				INFOPLIST_FILE = Sources/RepoPromptRemote/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "RepoPrompt Remote";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -410,7 +535,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.repoprompt.remote;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -451,6 +575,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 0.1.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -464,6 +589,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -508,6 +634,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 0.1.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -527,6 +654,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -538,6 +666,25 @@
 			};
 			name = Debug;
 		};
+		F190991DBAA6CEAE839F5087 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Sources/RepoPromptRemoteWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.repoprompt.remote.workspacevoice;
+				PROVISIONING_PROFILE_SPECIFIER = "$(REPOPROMPT_WIDGET_PROFILE)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -546,6 +693,15 @@
 			buildConfigurations = (
 				911AA93DFC61D324941B44B6 /* Debug */,
 				8AA7059FE7E5A0D910747A4A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F1292414C807A27D0157DF1E /* Build configuration list for PBXNativeTarget "RepoPromptRemoteWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6F675ADDC28A66430D313646 /* Debug */,
+				F190991DBAA6CEAE839F5087 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -578,6 +734,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		5803568FF1775EED1F2035D5 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC";
+			requirement = {
+				kind = exactVersion;
+				version = 154.0.0;
+			};
+		};
 		F30B4EBC40A0BF009F98DA88 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
@@ -601,6 +765,11 @@
 		E9FAD3AE0F5E68C6AF231FD1 /* RepoPromptRemoteNetworking */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RepoPromptRemoteNetworking;
+		};
+		F529AEAAE6E8C8DF9A6DE5ED /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5803568FF1775EED1F2035D5 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
