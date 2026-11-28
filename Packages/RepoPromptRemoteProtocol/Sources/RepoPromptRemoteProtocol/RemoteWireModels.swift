@@ -134,6 +134,8 @@ public enum RemoteRPCOperation: String, Codable, Sendable, CaseIterable {
     case history
     case transcript
     case imageAttachment = "image_attachment"
+    case workspaceVoice = "workspace_voice"
+    case workspacePresentation = "workspace_presentation"
     case command
     case contextBuilder = "context_builder"
 }

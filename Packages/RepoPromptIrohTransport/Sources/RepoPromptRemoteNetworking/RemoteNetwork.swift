@@ -37,7 +37,7 @@ public enum RemoteNetwork {
         switch operation {
         case .snapshot, .diagnostics, .workspaces, .sessions, .agents, .workflows, .history, .transcript:
             true
-        case .unpair, .command, .contextBuilder, .imageAttachment:
+        case .unpair, .command, .contextBuilder, .imageAttachment, .workspaceVoice, .workspacePresentation:
             false
         }
     }

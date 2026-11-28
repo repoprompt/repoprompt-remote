@@ -176,3 +176,11 @@ Changes that affect the wire contract must remain compatible with both this app 
 
 RepoPrompt Remote is licensed under the [Apache License, Version 2.0](LICENSE).
 Third-party components retain their respective licenses. See the [Iroh transport notices](Packages/RepoPromptIrohTransport/THIRD_PARTY-NOTICES.md).
+
+## Workspace Voice
+
+Select a workspace in Remote and tap the waveform to start a call. Use the workspace picker switches to keep individual workspaces open on the Mac. The Start Voice widget and app shortcut use the workspace selected in Remote.
+
+Choose a voice in **Settings → Workspace Voice → Voice**. Workspace Voice requires Control permission. Mac-wide Codex tool changes require Danger permission.
+
+[Mac setup mockup](docs/mockups/workspace-voice/desktop-setup.png) · [iPhone flow mockup](docs/mockups/workspace-voice/remote-flow.png) · [Home Screen widget mockup](docs/mockups/workspace-voice/ios-widget.png) · [WebRTC license](docs/third-party/webrtc-license.txt)

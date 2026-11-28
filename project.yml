@@ -6,6 +6,9 @@ options:
 packages:
   RepoPromptRemoteNetworking:
     path: .
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: "154.0.0"
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa.git
     exactVersion: 9.35.0
@@ -13,6 +16,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "0.1.0"
 targets:
   RepoPromptRemote:
     type: application
@@ -25,6 +30,13 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSCameraUsageDescription: Scan a RepoPrompt pairing code shown on your Mac.
         NSLocalNetworkUsageDescription: Connect to RepoPrompt on your local network.
+        NSMicrophoneUsageDescription: Talk to agents in the selected RepoPrompt workspace.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.repoprompt.remote.voice
+            CFBundleURLSchemes:
+              - rpremote
+        UIBackgroundModes:
+          - audio
         RepoPromptSentryDSN: $(REPOPROMPT_SENTRY_DSN)
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -35,11 +47,15 @@ targets:
         UILaunchScreen: {}
     sources:
       - path: Sources/RepoPromptRemote
+      - path: Sources/WorkspaceVoiceLauncher
     resources:
       - path: Sources/RepoPromptRemote/Assets.xcassets
     dependencies:
       - package: RepoPromptRemoteNetworking
       - package: Sentry
+      - package: WebRTC
+      - target: RepoPromptRemoteWidget
+        embed: true
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Sources/RepoPromptRemote/RepoPromptRemote.entitlements
@@ -47,12 +63,35 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: RepoPrompt Remote
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "0.1.0"
         TARGETED_DEVICE_FAMILY: "1,2"
       configs:
         Release:
           CODE_SIGN_ENTITLEMENTS: Sources/RepoPromptRemote/RepoPromptRemote.Release.entitlements
+          PROVISIONING_PROFILE_SPECIFIER: $(REPOPROMPT_APP_PROFILE)
+  RepoPromptRemoteWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    info:
+      path: Sources/RepoPromptRemoteWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Start Voice
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - path: Sources/RepoPromptRemoteWidget
+      - path: Sources/WorkspaceVoiceLauncher
+    settings:
+      base:
+        APPLICATION_EXTENSION_API_ONLY: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.repoprompt.remote.workspacevoice
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+      configs:
+        Release:
+          PROVISIONING_PROFILE_SPECIFIER: $(REPOPROMPT_WIDGET_PROFILE)
   RepoPromptRemoteTests:
     type: bundle.unit-test
     platform: iOS

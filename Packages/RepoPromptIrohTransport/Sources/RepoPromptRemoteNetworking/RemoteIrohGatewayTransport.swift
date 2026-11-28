@@ -288,6 +288,14 @@ public final class RemoteIrohGatewayTransport: RemoteConnectionCandidate, @unche
         try await rpc(.imageAttachment, payload: encoder.encode(request))
     }
 
+    public func workspaceVoice(_ request: RemoteWorkspaceVoiceRequest) async throws -> RemoteWorkspaceVoiceStatus {
+        try await rpc(.workspaceVoice, payload: encoder.encode(request))
+    }
+
+    public func setWorkspacePresentation(_ request: RemoteWorkspacePresentation) async throws -> RemoteWorkspacePresentation {
+        try await rpc(.workspacePresentation, payload: encoder.encode(request))
+    }
+
     public func transcript(
         sessionID: UUID,
         afterSequenceIndex: Int?,
